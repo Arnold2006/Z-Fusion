@@ -343,17 +343,22 @@ class PromptAssistant:
         return "ℹ️ Nothing to unload"
 
     def _load_engine_generator(self, target_model):
-        """Yields status updates while loading."""
-        if self.active_engine:
-            if self.active_engine.model_path == target_model:
-                return 
-            else:
-                yield f"🔄 Unloading {os.path.basename(self.active_engine.model_path)}..."
-                self.unload_llms()
+        """Yields status updates while loading. Skips if model already loaded."""
+        # Check if the correct model is already loaded
+        if self.active_engine and self.active_engine.model_path == target_model:
+            yield f"✅ Using cached model: {os.path.basename(target_model)}"
+            return
         
+        # Unload different model if one is active
+        if self.active_engine:
+            yield f"🔄 Unloading {os.path.basename(self.active_engine.model_path)}..."
+            self.unload_llms()
+        
+        # Load the new model
         yield f"⏳ Loading {os.path.basename(target_model)}... (Please Wait)"
         try:
             self.active_engine = QwenPromptExpander(model_path=target_model, device=0)
+            yield f"✅ Model loaded: {os.path.basename(target_model)}"
         except Exception as e:
             raise RuntimeError(f"Load Failed: {e}")
 
