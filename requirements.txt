@@ -1,0 +1,12 @@
+# Core dependencies
+gradio==5.49.1
+comfykit>=0.1.0
+httpx>=0.24.0
+
+# LLM Prompt Assistant dependencies
+transformers==4.57.1
+av==16.0.1
+qwen-vl-utils==0.0.14
+accelerate
+
+hf_xet
