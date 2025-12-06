@@ -2,6 +2,10 @@
 
 This project is designed for 1-click installing via [Pinokio:](https://pinokio.co/)
 
+Will be updated often next week or two!
+
+---
+
 An enhanced Gradio interface for fast image generation using the Z-Image 6B turbo model, powered by a ComfyUI backend.
 
 ![Z-Image Fusion](./icon.png)
