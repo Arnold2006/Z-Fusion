@@ -16,7 +16,9 @@ from pathlib import Path
 
 import gradio as gr
 import httpx
+import webbrowser
 from comfykit import ComfyKit
+from huggingface_hub import hf_hub_download
 
 # Prompt Assistant module
 from modules.prompt_assistant import PromptAssistant
@@ -34,6 +36,7 @@ APP_DIR = Path(__file__).parent
 OUTPUTS_DIR = APP_DIR / "outputs" / "z-image-fusion"
 OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
 MODULES_DIR = APP_DIR / "modules"
+CAMERA_PROMPTS_DIR = APP_DIR / "CameraPromptsGenerator"
 
 # Initialize Prompt Assistant
 prompt_assistant = PromptAssistant(
@@ -122,23 +125,39 @@ SEEDVR2_DIT_MODELS = [
 DEFAULT_SEEDVR2_DIT = "seedvr2_ema_7b_sharp-Q4_K_M.gguf"
 
 
-def scan_models(folder: Path, extensions: tuple = (".safetensors", ".ckpt", ".pt", ".gguf")) -> list:
-    """Scan folder recursively for model files, returning relative paths."""
+def scan_models(folder: Path, extensions: tuple = (".safetensors", ".ckpt", ".pt", ".gguf"), name_filter: str = None) -> list:
+    """Scan folder recursively for model files, returning relative paths.
+    
+    Args:
+        folder: Directory to scan
+        extensions: File extensions to include
+        name_filter: Optional case-insensitive substring to filter by (e.g. "z-image", "qwen")
+    """
     if not folder.exists():
         return []
     models = []
     for ext in extensions:
         for f in folder.rglob(f"*{ext}"):
-            rel_path = f.relative_to(folder)
-            models.append(str(rel_path))
+            rel_path = str(f.relative_to(folder))
+            # Apply name filter if specified
+            if name_filter is None or name_filter.lower() in rel_path.lower():
+                models.append(rel_path)
     return sorted(models)
 
 
-def get_models_by_mode(folder: Path, is_gguf: bool, default_standard: str, default_gguf: str) -> list:
-    """Get models filtered by mode (standard vs GGUF)."""
+# Name filters for Z-Image compatible models
+ZIMAGE_FILTERS = {
+    "diffusion": "z-image",  # z-image, z_image variants
+    "text_encoder": "qwen",  # Qwen3 text encoder
+    "vae": "ae",             # ae.safetensors
+}
+
+
+def get_models_by_mode(folder: Path, is_gguf: bool, default_standard: str, default_gguf: str, name_filter: str = None) -> list:
+    """Get models filtered by mode (standard vs GGUF) and optional name filter."""
     extensions = GGUF_EXTENSIONS if is_gguf else STANDARD_EXTENSIONS
     default = default_gguf if is_gguf else default_standard
-    models = scan_models(folder, extensions)
+    models = scan_models(folder, extensions, name_filter)
     return models or [default]
 
 
@@ -157,6 +176,45 @@ def get_default_model(choices: list, preferred: str) -> str:
     if preferred in choices:
         return preferred
     return choices[0] if choices else None
+
+
+def check_models_installed() -> dict:
+    """Check which model sets are installed and return status info."""
+    # Check for Z-Image compatible models
+    standard_diffusion = scan_models(DIFFUSION_DIR, STANDARD_EXTENSIONS, ZIMAGE_FILTERS["diffusion"])
+    standard_te = scan_models(TEXT_ENCODERS_DIR, STANDARD_EXTENSIONS, ZIMAGE_FILTERS["text_encoder"])
+    gguf_diffusion = scan_models(DIFFUSION_DIR, GGUF_EXTENSIONS, ZIMAGE_FILTERS["diffusion"])
+    gguf_te = scan_models(TEXT_ENCODERS_DIR, GGUF_EXTENSIONS, ZIMAGE_FILTERS["text_encoder"])
+    vae = scan_models(VAE_DIR, (".safetensors",), ZIMAGE_FILTERS["vae"])
+    
+    has_standard = bool(standard_diffusion and standard_te and vae)
+    has_gguf = bool(gguf_diffusion and gguf_te and vae)
+    
+    return {
+        "has_standard": has_standard,
+        "has_gguf": has_gguf,
+        "has_any": has_standard or has_gguf,
+        "recommended_mode": has_gguf and not has_standard,  # True = GGUF, False = Standard
+    }
+
+
+def validate_selected_models(unet_name: str, clip_name: str, vae_name: str) -> tuple[bool, str]:
+    """Validate that selected model files actually exist. Returns (valid, error_message)."""
+    unet_path = DIFFUSION_DIR / unet_name
+    clip_path = TEXT_ENCODERS_DIR / clip_name
+    vae_path = VAE_DIR / vae_name
+    
+    missing = []
+    if not unet_path.exists():
+        missing.append(f"Diffusion: {unet_name}")
+    if not clip_path.exists():
+        missing.append(f"Text Encoder: {clip_name}")
+    if not vae_path.exists():
+        missing.append(f"VAE: {vae_name}")
+    
+    if missing:
+        return False, "Missing models:\n• " + "\n• ".join(missing) + "\n\nDownload models in the 🔧 Models section."
+    return True, ""
 
 
 async def download_image_from_url(url: str) -> str:
@@ -230,6 +288,12 @@ async def generate_image(
     """Generate an image using the selected workflow. Yields (image, status, seed) tuples."""
     # Handle seed early so we can yield it immediately
     actual_seed = new_random_seed() if randomize_seed else int(seed)
+    
+    # Validate models exist before attempting generation
+    models_valid, error_msg = validate_selected_models(unet_name, clip_name, vae_name)
+    if not models_valid:
+        yield None, f"❌ {error_msg}", actual_seed
+        return
     
     # Validate i2i has input image
     if gen_type == "i2i" and input_image is None:
@@ -397,6 +461,120 @@ async def unload_models() -> str:
         return f"❌ Error: {e}"
 
 
+# Model definitions for huggingface_hub downloads
+MODEL_DOWNLOADS = {
+    "diffusion_bf16": {
+        "repo_id": "Comfy-Org/z_image_turbo",
+        "filename": "split_files/diffusion_models/z_image_turbo_bf16.safetensors",
+        "local_name": "z_image_turbo_bf16.safetensors",
+        "folder": DIFFUSION_DIR,
+        "label": "Diffusion (bf16)",
+    },
+    "te_bf16": {
+        "repo_id": "Comfy-Org/z_image_turbo",
+        "filename": "split_files/text_encoders/qwen_3_4b.safetensors",
+        "local_name": "qwen_3_4b.safetensors",
+        "folder": TEXT_ENCODERS_DIR,
+        "label": "Text Encoder (bf16)",
+    },
+    "vae": {
+        "repo_id": "Comfy-Org/z_image_turbo",
+        "filename": "split_files/vae/ae.safetensors",
+        "local_name": "ae.safetensors",
+        "folder": VAE_DIR,
+        "label": "VAE",
+    },
+    "diffusion_gguf": {
+        "repo_id": "gguf-org/z-image-gguf",
+        "filename": "z-image-turbo-q4_k_m.gguf",
+        "local_name": "z-image-turbo-q4_k_m.gguf",
+        "folder": DIFFUSION_DIR,
+        "label": "Diffusion (Q4 GGUF)",
+    },
+    "te_gguf": {
+        "repo_id": "Qwen/Qwen3-4B-GGUF",
+        "filename": "Qwen3-4B-Q4_K_M.gguf",
+        "local_name": "Qwen3-4B-Q4_K_M.gguf",
+        "folder": TEXT_ENCODERS_DIR,
+        "label": "Qwen3 TE (Q4 GGUF)",
+    },
+}
+
+
+def download_model(model_key: str, progress=gr.Progress()):
+    """Download a model from HuggingFace Hub to the appropriate folder."""
+    if model_key not in MODEL_DOWNLOADS:
+        return f"❌ Unknown model: {model_key}"
+    
+    info = MODEL_DOWNLOADS[model_key]
+    repo_id = info["repo_id"]
+    filename = info["filename"]
+    local_name = info["local_name"]
+    folder = info["folder"]
+    label = info["label"]
+    dest_path = folder / local_name
+    
+    # Check if already exists
+    if dest_path.exists():
+        return f"✓ {label} already installed"
+    
+    # Ensure folder exists
+    folder.mkdir(parents=True, exist_ok=True)
+    
+    try:
+        logger.info(f"Downloading {label}: {repo_id}/{filename}")
+        progress(0, desc=f"Downloading {label}...")
+        
+        # Download using huggingface_hub (handles caching, resume, xet acceleration)
+        downloaded_path = hf_hub_download(
+            repo_id=repo_id,
+            filename=filename,
+            local_dir=folder,
+            local_dir_use_symlinks=False,
+        )
+        
+        # If HF downloaded to a subfolder structure, move to expected location
+        downloaded_path = Path(downloaded_path)
+        if downloaded_path != dest_path and downloaded_path.exists():
+            shutil.move(str(downloaded_path), str(dest_path))
+            # Clean up any empty parent dirs created by HF
+            for parent in downloaded_path.parents:
+                if parent != folder and parent.is_dir() and not any(parent.iterdir()):
+                    parent.rmdir()
+        
+        logger.info(f"Downloaded: {dest_path}")
+        progress(1, desc="Done")
+        return f"✓ {label} downloaded successfully"
+        
+    except Exception as e:
+        logger.error(f"Download failed for {label}: {e}")
+        return f"❌ {label} download failed: {e}"
+
+
+def download_all_standard(progress=gr.Progress()):
+    """Download all standard (bf16) models."""
+    results = []
+    keys = ["diffusion_bf16", "te_bf16", "vae"]
+    for i, key in enumerate(keys):
+        progress((i / len(keys)), desc=f"Downloading {MODEL_DOWNLOADS[key]['label']}...")
+        result = download_model(key, progress)
+        results.append(result)
+    progress(1, desc="Done")
+    return "\n".join(results)
+
+
+def download_all_gguf(progress=gr.Progress()):
+    """Download all GGUF (Q4) models + VAE."""
+    results = []
+    keys = ["diffusion_gguf", "te_gguf", "vae"]
+    for i, key in enumerate(keys):
+        progress((i / len(keys)), desc=f"Downloading {MODEL_DOWNLOADS[key]['label']}...")
+        result = download_model(key, progress)
+        results.append(result)
+    progress(1, desc="Done")
+    return "\n".join(results)
+
+
 def create_interface() -> gr.Blocks:
     """Create the Gradio interface."""
     models = get_model_choices()
@@ -404,11 +582,24 @@ def create_interface() -> gr.Blocks:
     samplers = comfyui_options["samplers"]
     schedulers = comfyui_options["schedulers"]
     
+    # Check installed models to determine startup state
+    model_status = check_models_installed()
+    default_gguf_mode = model_status["recommended_mode"]
+    show_setup_banner = not model_status["has_any"]
+    
     # CSS fix for textarea scrollbars not appearing on initial content
     css = """
     textarea {
         overflow-y: auto !important;
         resize: vertical;
+    }
+    .setup-banner {
+        background: linear-gradient(90deg, #ff6b35, #f7931e);
+        color: white;
+        padding: 12px 16px;
+        border-radius: 8px;
+        margin-bottom: 12px;
+        font-weight: 500;
     }
     """
     
@@ -418,6 +609,13 @@ def create_interface() -> gr.Blocks:
         with gr.Tabs() as main_tabs:
             # ===== Z-IMAGE GENERATION TAB =====
             with gr.TabItem("⚡ Z-Image Turbo", id="tab_generate"):
+                # Setup banner - shown when no models installed
+                setup_banner = gr.Markdown(
+                    "⚠️ **Setup Required** — Download models in the **🔧 Models** section below to get started!",
+                    visible=show_setup_banner,
+                    elem_classes=["setup-banner"]
+                )
+                
                 with gr.Row():
                     with gr.Column(scale=1):
                         prompt = gr.Textbox(
@@ -495,15 +693,57 @@ def create_interface() -> gr.Blocks:
                                 refresh_loras_btn = gr.Button("🔄", size="sm", scale=0, min_width=40)
                             with gr.Row():                              
                                 lora_strength = gr.Slider(label="Strength", value=1.0, minimum=0.0, maximum=2.0, step=0.05, scale=2)
+                            with gr.Row():
+                                open_loras_btn = gr.Button("📂 Open LoRAs Folder", size="sm")
+                            gr.Markdown("*[🔗 Browse CivitAI LoRAs](https://civitai.com/models) — Filter by 'Z-Image' on the right sidebar*")
                         
-                        # Model selection
-                        with gr.Accordion("🔧 Models", open=False):
+                        # Model selection - auto-open if setup needed
+                        with gr.Accordion("🔧 Models", open=show_setup_banner):
                             with gr.Row():
-                                use_gguf = gr.Radio(choices=[("Standard", False), ("GGUF", True)], value=False, label="Mode", scale=0)
-                                unet_name = gr.Dropdown(label="Diffusion", choices=get_models_by_mode(DIFFUSION_DIR, False, DEFAULT_DIFFUSION, DEFAULT_DIFFUSION_GGUF), value=DEFAULT_DIFFUSION, scale=2)
+                                use_gguf = gr.Radio(choices=[("Standard", False), ("GGUF", True)], value=default_gguf_mode, label="Mode", scale=1)
+                                show_all_models = gr.Checkbox(label="Show all", value=False, scale=1, min_width=80, info="Show non-Z-Image models")
                             with gr.Row():
-                                clip_name = gr.Dropdown(label="Text Encoder", choices=get_models_by_mode(TEXT_ENCODERS_DIR, False, DEFAULT_TEXT_ENCODER, DEFAULT_TEXT_ENCODER_GGUF), value=DEFAULT_TEXT_ENCODER)
-                                vae_name = gr.Dropdown(label="VAE", choices=models["vae"], value=get_default_model(models["vae"], DEFAULT_VAE))
+                                # Use smart defaults based on detected mode
+                                initial_diffusion = get_models_by_mode(DIFFUSION_DIR, default_gguf_mode, DEFAULT_DIFFUSION, DEFAULT_DIFFUSION_GGUF, ZIMAGE_FILTERS["diffusion"])
+                                initial_diffusion_default = DEFAULT_DIFFUSION_GGUF if default_gguf_mode else DEFAULT_DIFFUSION
+                                unet_name = gr.Dropdown(label="Diffusion", choices=initial_diffusion, value=get_default_model(initial_diffusion, initial_diffusion_default), scale=2)
+                            with gr.Row():
+                                initial_te = get_models_by_mode(TEXT_ENCODERS_DIR, default_gguf_mode, DEFAULT_TEXT_ENCODER, DEFAULT_TEXT_ENCODER_GGUF, ZIMAGE_FILTERS["text_encoder"])
+                                initial_te_default = DEFAULT_TEXT_ENCODER_GGUF if default_gguf_mode else DEFAULT_TEXT_ENCODER
+                                clip_name = gr.Dropdown(label="Text Encoder", choices=initial_te, value=get_default_model(initial_te, initial_te_default))
+                                vae_name = gr.Dropdown(label="VAE", choices=scan_models(VAE_DIR, (".safetensors",), ZIMAGE_FILTERS["vae"]) or [DEFAULT_VAE], value=DEFAULT_VAE)
+                            
+                            # Model Management - auto-open if setup needed
+                            with gr.Accordion("📦 Model Management", open=show_setup_banner):
+                                gr.Markdown("**Open Folders**")
+                                with gr.Row():
+                                    open_diffusion_btn = gr.Button("📂 Diffusion", size="sm")
+                                    open_te_btn = gr.Button("📂 Text Encoders", size="sm")
+                                    open_vae_btn = gr.Button("📂 VAE", size="sm")
+                                
+                                gr.Markdown("**Download Starter Models** *(check terminal for progress)*")
+                                download_status = gr.Textbox(label="Status", interactive=False, show_label=False, lines=2)
+                                
+                                gr.Markdown("*Standard (bf16) — Full precision, ~20GB total*")
+                                with gr.Row():
+                                    dl_all_standard_btn = gr.Button("⬇️ Download All (bf16)", variant="primary", size="sm")
+                                with gr.Row():
+                                    dl_diffusion_bf16_btn = gr.Button("⬇️ Diffusion", size="sm")
+                                    dl_te_bf16_btn = gr.Button("⬇️ Text Encoder", size="sm")
+                                    dl_vae_btn = gr.Button("⬇️ VAE", size="sm")
+                                
+                                gr.Markdown("*GGUF (Q4) — Low VRAM, ~7GB total*")
+                                with gr.Row():
+                                    dl_all_gguf_btn = gr.Button("⬇️ Download All (GGUF)", variant="primary", size="sm")
+                                with gr.Row():
+                                    dl_diffusion_gguf_btn = gr.Button("⬇️ Diffusion Q4", size="sm")
+                                    dl_te_gguf_btn = gr.Button("⬇️ Qwen3 TE Q4", size="sm")
+                                    dl_vae_gguf_btn = gr.Button("⬇️ VAE", size="sm")
+                                
+                                gr.Markdown("*Advanced — Browse repos for other quants*")
+                                with gr.Row():
+                                    gr.Button("🔗 Z-Image GGUF Repo", size="sm", link="https://huggingface.co/gguf-org/z-image-gguf")
+                                    gr.Button("🔗 Qwen3 GGUF Repo", size="sm", link="https://huggingface.co/Qwen/Qwen3-4B-GGUF")
                         
                     with gr.Column(scale=1):
                         output_image = gr.Image(label="Generated Image", type="filepath", interactive=False, height=512)
@@ -514,6 +754,10 @@ def create_interface() -> gr.Blocks:
                             open_folder_btn = gr.Button("📂 Open Folder", size="sm")
                             send_to_upscale_btn = gr.Button("🔍 Send to Upscale", size="sm")
                             unload_btn = gr.Button("🧹 Unload Models", size="sm")
+                        
+                        with gr.Accordion("📸 Camera Prompts", open=False):
+                            gr.Markdown("Visual guide to camera angles, shots & composition. *Opens in browser.*")
+                            open_camera_prompts_btn = gr.Button("🔗 Open Reference Tool", size="sm")
             
             # ===== UPSCALE TAB =====
             with gr.TabItem("🔍 Upscale", id="tab_upscale"):
@@ -578,6 +822,7 @@ def create_interface() -> gr.Blocks:
             # ===== LLM SETTINGS TAB =====
             with gr.TabItem("⚙️ LLM Settings"):
                 prompt_assistant.render_settings_ui()
+            
         
         # ===== EVENT HANDLERS =====
         
@@ -614,21 +859,38 @@ def create_interface() -> gr.Blocks:
             outputs=[prompt]
         )
         
-        # Toggle GGUF mode - update model dropdowns
-        def toggle_gguf_mode(is_gguf):
-            diffusion_models = get_models_by_mode(DIFFUSION_DIR, is_gguf, DEFAULT_DIFFUSION, DEFAULT_DIFFUSION_GGUF)
-            clip_models = get_models_by_mode(TEXT_ENCODERS_DIR, is_gguf, DEFAULT_TEXT_ENCODER, DEFAULT_TEXT_ENCODER_GGUF)
+        # Update model dropdowns based on GGUF mode and show_all filter
+        def update_model_dropdowns(is_gguf, show_all):
+            """Refresh model dropdowns with current filter settings."""
+            diff_filter = None if show_all else ZIMAGE_FILTERS["diffusion"]
+            te_filter = None if show_all else ZIMAGE_FILTERS["text_encoder"]
+            vae_filter = None if show_all else ZIMAGE_FILTERS["vae"]
+            
+            diffusion_models = get_models_by_mode(DIFFUSION_DIR, is_gguf, DEFAULT_DIFFUSION, DEFAULT_DIFFUSION_GGUF, diff_filter)
+            clip_models = get_models_by_mode(TEXT_ENCODERS_DIR, is_gguf, DEFAULT_TEXT_ENCODER, DEFAULT_TEXT_ENCODER_GGUF, te_filter)
+            vae_models = scan_models(VAE_DIR, (".safetensors",), vae_filter) or [DEFAULT_VAE]
+            
             default_diffusion = DEFAULT_DIFFUSION_GGUF if is_gguf else DEFAULT_DIFFUSION
             default_clip = DEFAULT_TEXT_ENCODER_GGUF if is_gguf else DEFAULT_TEXT_ENCODER
+            
             return (
                 gr.update(choices=diffusion_models, value=get_default_model(diffusion_models, default_diffusion)),
                 gr.update(choices=clip_models, value=get_default_model(clip_models, default_clip)),
+                gr.update(choices=vae_models, value=get_default_model(vae_models, DEFAULT_VAE)),
             )
         
+        model_dropdown_outputs = [unet_name, clip_name, vae_name]
+        
         use_gguf.change(
-            fn=toggle_gguf_mode,
-            inputs=[use_gguf],
-            outputs=[unet_name, clip_name]
+            fn=update_model_dropdowns,
+            inputs=[use_gguf, show_all_models],
+            outputs=model_dropdown_outputs
+        )
+        
+        show_all_models.change(
+            fn=update_model_dropdowns,
+            inputs=[use_gguf, show_all_models],
+            outputs=model_dropdown_outputs
         )
         
         # Refresh LoRA list
@@ -740,27 +1002,111 @@ def create_interface() -> gr.Blocks:
         )
         
         # Open folder helpers
-        def open_outputs_folder():
-            OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
+        def open_folder(folder_path: Path):
+            """Cross-platform folder opener."""
+            folder_path.mkdir(parents=True, exist_ok=True)
             if sys.platform == "win32":
-                os.startfile(OUTPUTS_DIR)
+                os.startfile(folder_path)
             elif sys.platform == "darwin":
-                subprocess.run(["open", str(OUTPUTS_DIR)])
+                subprocess.run(["open", str(folder_path)])
             else:
-                subprocess.run(["xdg-open", str(OUTPUTS_DIR)])
+                subprocess.run(["xdg-open", str(folder_path)])
+        
+        def open_outputs_folder():
+            open_folder(OUTPUTS_DIR)
         
         def open_upscaled_folder():
-            upscaled_dir = OUTPUTS_DIR / "upscaled"
-            upscaled_dir.mkdir(parents=True, exist_ok=True)
-            if sys.platform == "win32":
-                os.startfile(upscaled_dir)
-            elif sys.platform == "darwin":
-                subprocess.run(["open", str(upscaled_dir)])
-            else:
-                subprocess.run(["xdg-open", str(upscaled_dir)])
+            open_folder(OUTPUTS_DIR / "upscaled")
         
         open_folder_btn.click(fn=open_outputs_folder)
         upscale_open_folder_btn.click(fn=open_upscaled_folder)
+        
+        # Model folder buttons
+        open_loras_btn.click(fn=lambda: open_folder(LORAS_DIR))
+        open_diffusion_btn.click(fn=lambda: open_folder(DIFFUSION_DIR))
+        open_te_btn.click(fn=lambda: open_folder(TEXT_ENCODERS_DIR))
+        open_vae_btn.click(fn=lambda: open_folder(VAE_DIR))
+        
+        # Model download buttons - refresh dropdowns and hide banner after download
+        def download_and_refresh(is_gguf, show_all, model_key, progress=gr.Progress()):
+            """Download a single model and refresh dropdowns."""
+            status = download_model(model_key, progress)
+            dropdowns = update_model_dropdowns(is_gguf, show_all)
+            # Check if we should hide the setup banner
+            model_status = check_models_installed()
+            banner_visible = gr.update(visible=not model_status["has_any"])
+            return (status,) + dropdowns + (banner_visible,)
+        
+        def download_all_and_refresh(is_gguf_mode, show_all, progress=gr.Progress()):
+            """Download all models for a mode, switch to that mode, and refresh dropdowns."""
+            if is_gguf_mode:
+                status = download_all_gguf(progress)
+            else:
+                status = download_all_standard(progress)
+            # Update dropdowns for the mode we just downloaded
+            dropdowns = update_model_dropdowns(is_gguf_mode, show_all)
+            # Check if we should hide the setup banner
+            model_status = check_models_installed()
+            banner_visible = gr.update(visible=not model_status["has_any"])
+            # Also switch the radio to match the downloaded mode
+            mode_switch = gr.update(value=is_gguf_mode)
+            return (status,) + dropdowns + (banner_visible, mode_switch)
+        
+        download_outputs = [download_status, unet_name, clip_name, vae_name, setup_banner]
+        download_inputs = [use_gguf, show_all_models]
+        
+        # Individual download buttons (don't change mode)
+        dl_diffusion_bf16_btn.click(
+            fn=download_and_refresh,
+            inputs=download_inputs + [gr.State("diffusion_bf16")],
+            outputs=download_outputs
+        )
+        dl_te_bf16_btn.click(
+            fn=download_and_refresh,
+            inputs=download_inputs + [gr.State("te_bf16")],
+            outputs=download_outputs
+        )
+        dl_vae_btn.click(
+            fn=download_and_refresh,
+            inputs=download_inputs + [gr.State("vae")],
+            outputs=download_outputs
+        )
+        dl_diffusion_gguf_btn.click(
+            fn=download_and_refresh,
+            inputs=download_inputs + [gr.State("diffusion_gguf")],
+            outputs=download_outputs
+        )
+        dl_te_gguf_btn.click(
+            fn=download_and_refresh,
+            inputs=download_inputs + [gr.State("te_gguf")],
+            outputs=download_outputs
+        )
+        dl_vae_gguf_btn.click(
+            fn=download_and_refresh,
+            inputs=download_inputs + [gr.State("vae")],
+            outputs=download_outputs
+        )
+        
+        # Download all buttons - also switch mode to match
+        download_all_outputs = download_outputs + [use_gguf]
+        dl_all_standard_btn.click(
+            fn=lambda show_all, progress=gr.Progress(): download_all_and_refresh(False, show_all, progress),
+            inputs=[show_all_models], outputs=download_all_outputs
+        )
+        dl_all_gguf_btn.click(
+            fn=lambda show_all, progress=gr.Progress(): download_all_and_refresh(True, show_all, progress),
+            inputs=[show_all_models], outputs=download_all_outputs
+        )
+        
+        # Camera prompts - open in browser
+        def open_camera_prompts():
+            camera_html = CAMERA_PROMPTS_DIR / "index.html"
+            if camera_html.exists():
+                webbrowser.open(camera_html.as_uri())
+                return "✓ Opened in browser"
+            return "❌ Camera prompts not found"
+        
+        open_camera_prompts_btn.click(fn=open_camera_prompts)
     
     return interface
 
