@@ -952,9 +952,10 @@ def create_interface() -> gr.Blocks:
                                     show_label=False,
                                     container=False,
                                     choices=models["lora"],
-                                    value=models["lora"][0] if models["lora"] else None,
+                                    value=None,
                                     interactive=True,
-                                    scale=3
+                                    scale=3,
+                                    allow_custom_value=True
                                 )
                                 refresh_loras_btn = gr.Button("🔄", size="sm", scale=0, min_width=40)
                             with gr.Row():                              
@@ -1052,7 +1053,7 @@ def create_interface() -> gr.Blocks:
                             gr.Markdown("""
 **First Time Setup**
 1. Download models in **🔧 Models** section (left panel)
-2. Choose **GGUF** for lower VRAM (~8GB) or **Standard** for full precision (~16GB+)
+2. Choose **GGUF** for lower VRAM (8GB) or **Standard** for full precision (16GB+)
 3. Click the download button — check Pinokio's `->_ Terminal` button (top bar) for progress
 
 **Already have ComfyUI via Pinokio?**  
