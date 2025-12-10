@@ -352,21 +352,24 @@ async def generate_image(
     # lora params
     use_lora: bool, lora_name: str, lora_strength: float,
     # output params
-    autosave: bool
+    autosave: bool,
+    # batch params
+    batch_count: int = 1
 ):
-    """Generate an image using the selected workflow. Yields (image, status, seed) tuples."""
+    """Generate images using the selected workflow. Yields (gallery_images, status, seed) tuples."""
     # Handle seed early so we can yield it immediately
-    actual_seed = new_random_seed() if randomize_seed else int(seed)
+    base_seed = new_random_seed() if randomize_seed else int(seed)
+    batch_count = max(1, min(int(batch_count), 100))  # Clamp to 1-100
     
     # Validate models exist before attempting generation
     models_valid, error_msg = validate_selected_models(unet_name, clip_name, vae_name)
     if not models_valid:
-        yield None, f"❌ {error_msg}", actual_seed
+        yield [], f"❌ {error_msg}", base_seed
         return
     
     # Validate i2i has input image
     if gen_type == "i2i" and input_image is None:
-        yield None, "❌ Please upload an input image for Image→Image", actual_seed
+        yield [], "❌ Please upload an input image for Image→Image", base_seed
         return
     
     # Select workflow
@@ -374,78 +377,118 @@ async def generate_image(
     workflow_path = APP_DIR / "workflows" / workflow_file
     
     if not workflow_path.exists():
-        yield None, f"❌ Workflow not found: {workflow_file}", actual_seed
+        yield [], f"❌ Workflow not found: {workflow_file}", base_seed
         return
     
     # Allow empty prompt - model will generate without guidance
     prompt_text = prompt.strip() if prompt else ""
     
     logger.info(f"Using workflow: {workflow_file}")
-    logger.info(f"Generating: '{prompt_text[:50]}{'...' if len(prompt_text) > 50 else ''}', seed={actual_seed}")
+    logger.info(f"Batch generation: {batch_count} images starting at seed={base_seed}")
     
-    # Yield initial state - shows "Generating..." status, locks in seed, clears spinner on seed/status
-    yield None, "⏳ Generating...", actual_seed
+    # Yield initial state
+    status_prefix = f"[1/{batch_count}] " if batch_count > 1 else ""
+    yield [], f"⏳ {status_prefix}Generating...", base_seed
+    
+    generated_images = []
+    total_duration = 0.0
     
     try:
-        # Build params dict
-        params = {
-            "prompt": prompt_text,
-            "steps": int(steps),
-            "seed": actual_seed,
-            "cfg": cfg,
-            "shift": shift,
-            "sampler_name": sampler_name,
-            "scheduler": scheduler,
-            "unet_name": unet_name,
-            "clip_name": clip_name,
-            "vae_name": vae_name,
-        }
+        for i in range(batch_count):
+            current_seed = base_seed + i
+            
+            # Update status for batch progress
+            if batch_count > 1:
+                yield generated_images, f"⏳ [{i+1}/{batch_count}] Generating (seed: {current_seed})...", base_seed
+            
+            # Build params dict
+            params = {
+                "prompt": prompt_text,
+                "steps": int(steps),
+                "seed": current_seed,
+                "cfg": cfg,
+                "shift": shift,
+                "sampler_name": sampler_name,
+                "scheduler": scheduler,
+                "unet_name": unet_name,
+                "clip_name": clip_name,
+                "vae_name": vae_name,
+            }
+            
+            # Add type-specific params
+            if gen_type == "t2i":
+                params["width"] = int(width)
+                params["height"] = int(height)
+            else:  # i2i
+                params["image"] = input_image
+                params["megapixels"] = megapixels
+                params["denoise"] = denoise
+            
+            # Add lora params if enabled
+            if use_lora and lora_name:
+                params["lora_name"] = lora_name
+                params["lora_strength"] = lora_strength
+            
+            # Execute workflow
+            result = await kit.execute(str(workflow_path), params)
+            
+            if result.status == "error":
+                if batch_count == 1:
+                    yield [], f"❌ Generation failed: {result.msg}", base_seed
+                    return
+                else:
+                    # Continue batch on error, just log it
+                    logger.warning(f"Batch item {i+1} failed: {result.msg}")
+                    continue
+            
+            if not result.images:
+                if batch_count == 1:
+                    yield [], "❌ No images generated", base_seed
+                    return
+                else:
+                    continue
+            
+            # Get image
+            image_path = result.images[0]
+            if image_path.startswith("http"):
+                image_path = await download_image_from_url(image_path)
+            
+            # Track duration
+            if result.duration:
+                total_duration += result.duration
+            
+            # Autosave each image as it completes
+            if autosave:
+                save_image_to_outputs(image_path, prompt_text or "image")
+            
+            # Add to gallery with caption showing seed
+            generated_images.append((image_path, f"seed: {current_seed}"))
+            
+            # Yield progress update
+            if batch_count > 1:
+                yield generated_images, f"✓ [{i+1}/{batch_count}] Complete", base_seed
         
-        # Add type-specific params
-        if gen_type == "t2i":
-            params["width"] = int(width)
-            params["height"] = int(height)
-        else:  # i2i
-            params["image"] = input_image
-            params["megapixels"] = megapixels
-            params["denoise"] = denoise
-        
-        # Add lora params if enabled
-        if use_lora and lora_name:
-            params["lora_name"] = lora_name
-            params["lora_strength"] = lora_strength
-        
-        # Execute workflow
-        result = await kit.execute(str(workflow_path), params)
-        
-        if result.status == "error":
-            yield None, f"❌ Generation failed: {result.msg}", actual_seed
+        # Final status
+        if not generated_images:
+            yield [], "❌ No images generated", base_seed
             return
         
-        if not result.images:
-            yield None, "❌ No images generated", actual_seed
-            return
+        # Build final status message
+        count_str = f"{len(generated_images)} images" if len(generated_images) > 1 else ""
+        time_str = f"{total_duration:.1f}s" if total_duration else ""
+        save_str = "Saved" if autosave else ""
         
-        # Get image
-        image_path = result.images[0]
-        if image_path.startswith("http"):
-            image_path = await download_image_from_url(image_path)
+        status_parts = [p for p in [count_str, time_str, save_str] if p]
+        status = "✓ " + " | ".join(status_parts) if status_parts else "✓ Done"
         
-        # Autosave
-        if autosave:
-            save_image_to_outputs(image_path, prompt_text or "image")
-            status = f"✓ {result.duration:.1f}s | Saved" if result.duration else "✓ Saved"
-        else:
-            status = f"✓ {result.duration:.1f}s" if result.duration else "✓ Done"
-        
-        yield image_path, status, actual_seed
+        yield generated_images, status, base_seed
         
     except Exception as e:
         logger.error(f"Error: {e}", exc_info=True)
         if "connect" in str(e).lower():
-            yield None, "❌ Cannot connect to ComfyUI", actual_seed
+            yield generated_images or [], "❌ Cannot connect to ComfyUI", base_seed
         else:
-            yield None, f"❌ {str(e)}", actual_seed
+            yield generated_images or [], f"❌ {str(e)}", base_seed
 
 
 def get_seedvr2_max_blocks(dit_model: str) -> int:
@@ -922,7 +965,7 @@ def create_interface() -> gr.Blocks:
                                         show_label=False
                                     )
                                 with gr.Row():
-                                    megapixels = gr.Slider(label="Megapixels", info="Scales against input image to maintain aspect ratio", value=2, minimum=0.5, maximum=3.0, step=0.1)
+                                    megapixels = gr.Slider(label="Megapixels", info="Scales against input image to maintain aspect ratio", value=1.5, minimum=0.5, maximum=3.0, step=0.1)
                                     denoise = gr.Slider(label="Denoise", value=0.67, minimum=0.0, maximum=1.0, step=0.01)
                             
                             with gr.TabItem("🤖 Prompt Assistant"):
@@ -944,7 +987,7 @@ def create_interface() -> gr.Blocks:
                                     enhance_btn = gr.Button("✨ Enhance", variant="primary", size="lg", scale=2)
                                     describe_btn = gr.Button("🖼️ Describe", variant="secondary", size="lg", scale=2, visible=False)
                                     clear_prompt_btn = gr.Button("🗑️ Clear", size="lg", scale=1)
-                                assist_status = gr.Textbox(label="Status", value="Ready", interactive=False, show_label=False)
+                                assist_status = gr.Textbox(label="Status", value="Ready", interactive=False, show_label=False, lines=1.5)
 
                         
                         # Generation settings - compact group
@@ -960,8 +1003,9 @@ def create_interface() -> gr.Blocks:
                                     sampler_name = gr.Dropdown(label="Sampler", choices=samplers, value=PREFERRED_SAMPLER if PREFERRED_SAMPLER in samplers else samplers[0], scale=2)
                                     scheduler = gr.Dropdown(label="Scheduler", choices=schedulers, value=PREFERRED_SCHEDULER if PREFERRED_SCHEDULER in schedulers else schedulers[0], scale=2)
                             with gr.Row():                                   
-                                seed = gr.Number(label="Seed", value=new_random_seed(), minimum=0, step=1, scale=3)
-                                randomize_seed = gr.Checkbox(label="🎲", value=True, scale=1)
+                                seed = gr.Number(label="Seed", value=new_random_seed(), minimum=0, step=1, scale=1)
+                                randomize_seed = gr.Checkbox(label="🎲", value=True, scale=0, min_width=60)
+                                batch_count = gr.Slider(label="Batch", value=1, minimum=1, maximum=100, step=1, scale=1, info="Images to generate")
                         
                         # LoRA settings
                         with gr.Accordion("🎨 LoRA", open=False):
@@ -983,6 +1027,7 @@ def create_interface() -> gr.Blocks:
                             with gr.Row():
                                 open_loras_btn = gr.Button("📂 Open LoRAs Folder", size="sm")
                             gr.Markdown("*[🔗 Browse CivitAI LoRAs](https://civitai.com/models) — Filter by 'Z-Image' (top-right)*")
+                            gr.Markdown("*[🔗 Character LoRAs (malcolmrey)](https://huggingface.co/spaces/malcolmrey/browser) — Filter by 'ZImage'*")                            
                         
                         # Model selection - auto-open if setup needed
                         with gr.Accordion("🔧 Models", open=show_setup_banner):
@@ -1058,12 +1103,23 @@ def create_interface() -> gr.Blocks:
                                     gr.Button("🔗 Qwen3 GGUF Repo", size="sm", link="https://huggingface.co/Qwen/Qwen3-4B-GGUF/tree/main")
                         
                     with gr.Column(scale=1):
-                        output_image = gr.Image(label="Generated Image", type="filepath", interactive=False, height=512)
+                        output_gallery = gr.Gallery(
+                            label="Generated Images",
+                            columns=4,
+                            rows=2,
+                            height="auto",
+                            object_fit="contain",
+                            show_download_button=True,
+                            preview=True,
+                            show_share_button=False
+                        )
                         with gr.Row():
                             save_btn = gr.Button("💾 Save", size="sm")
                             send_to_upscale_btn = gr.Button("🔍 Send to Upscale", size="sm")
                         autosave = gr.Checkbox(label="Auto-save", value=False)
-                        gen_status = gr.Textbox(label="Status", interactive=False, show_label=False)
+                        gen_status = gr.Textbox(label="Status", interactive=False, show_label=False, lines=1.5)
+                        # Hidden state to track selected image for "Send to Upscale"
+                        selected_gallery_image = gr.State(value=None)
                         open_folder_btn = gr.Button("📂 Open Output Folder", size="sm")
                        
                         with gr.Row():
@@ -1657,7 +1713,8 @@ Your models & LoRAs are automatically shared — no re-download needed!
             sampler_name, scheduler,
             unet_name, clip_name, vae_name,
             use_lora, lora_name, lora_strength,
-            autosave
+            autosave,
+            batch_count
         ]
         
         # Wrapper functions for async generate (async generators)
@@ -1673,14 +1730,14 @@ Your models & LoRAs are automatically shared — no re-download needed!
         generate_t2i_btn.click(
             fn=generate_t2i,
             inputs=[prompt, width, height] + common_inputs,
-            outputs=[output_image, gen_status, seed]
+            outputs=[output_gallery, gen_status, seed]
         )
         
         # I2I generate
         generate_i2i_btn.click(
             fn=generate_i2i,
             inputs=[prompt, input_image, megapixels, denoise] + common_inputs,
-            outputs=[output_image, gen_status, seed]
+            outputs=[output_gallery, gen_status, seed]
         )
         
         # Shared upscale inputs (SeedVR2 settings)
@@ -1744,17 +1801,43 @@ Your models & LoRAs are automatically shared — no re-download needed!
             outputs=[gen_status]
         )
         
-        # Save generated image
-        def save_current_image(image_path, prompt_text):
-            if not image_path:
+        # Save selected image from gallery (or first if none selected)
+        def save_selected_image(selected_img, gallery_data, prompt_text):
+            image_to_save = None
+            
+            # Prefer explicitly selected image
+            if selected_img:
+                image_to_save = selected_img
+            # Fall back to first gallery image
+            elif gallery_data:
+                item = gallery_data[0]
+                image_to_save = item[0] if isinstance(item, (list, tuple)) else item
+            
+            if not image_to_save:
                 return "❌ No image to save"
-            saved_path = save_image_to_outputs(image_path, prompt_text or "image")
+            
+            saved_path = save_image_to_outputs(image_to_save, prompt_text or "image")
             return f"✓ Saved: {Path(saved_path).name}"
         
         save_btn.click(
-            fn=save_current_image,
-            inputs=[output_image, prompt],
+            fn=save_selected_image,
+            inputs=[selected_gallery_image, output_gallery, prompt],
             outputs=[gen_status]
+        )
+        
+        # Track gallery selection for "Send to Upscale"
+        def on_gallery_select(evt: gr.SelectData, gallery_data):
+            """Store the selected image path when user clicks on gallery item."""
+            if gallery_data and evt.index < len(gallery_data):
+                item = gallery_data[evt.index]
+                image_path = item[0] if isinstance(item, (list, tuple)) else item
+                return image_path
+            return None
+        
+        output_gallery.select(
+            fn=on_gallery_select,
+            inputs=[output_gallery],
+            outputs=[selected_gallery_image]
         )
         
         # Save upscaled image
@@ -1770,10 +1853,27 @@ Your models & LoRAs are automatically shared — no re-download needed!
             outputs=[upscale_status]
         )
         
-        # Send to Upscale - copy image and switch tab
+        # Send to Upscale - use selected image or first from gallery
+        def send_to_upscale(selected_img, gallery_data):
+            """Send selected image (or first image) to upscale tab."""
+            image_to_send = None
+            
+            # Prefer explicitly selected image
+            if selected_img:
+                image_to_send = selected_img
+            # Fall back to first gallery image
+            elif gallery_data:
+                item = gallery_data[0]
+                image_to_send = item[0] if isinstance(item, (list, tuple)) else item
+            
+            if not image_to_send:
+                return None, gr.Tabs()  # No change if no image
+            
+            return image_to_send, gr.Tabs(selected="tab_upscale")
+        
         send_to_upscale_btn.click(
-            fn=lambda img: (img, gr.Tabs(selected="tab_upscale")),
-            inputs=[output_image],
+            fn=send_to_upscale,
+            inputs=[selected_gallery_image, output_gallery],
             outputs=[upscale_input_image, main_tabs]
         )
         
