@@ -39,6 +39,14 @@ module.exports = {
         message: "git pull"
       }
     },
+    // Pull latest changes for SeedVarianceEnhancer
+    {
+      method: "shell.run",
+      params: {
+        path: "app/comfyui/custom_nodes/SeedVarianceEnhancer",
+        message: "git pull"
+      }
+    },
     // Update CameraPromptsGenerator
     {
       method: "shell.run",

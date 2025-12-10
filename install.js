@@ -36,6 +36,15 @@ module.exports = {
         ],
       }
     },
+    // Clone SeedVarianceEnhancer for more variation across seeds
+    {
+      method: "shell.run",
+      params: {
+        message: [
+          "git clone https://github.com/ChangeTheConstants/SeedVarianceEnhancer.git app/comfyui/custom_nodes/SeedVarianceEnhancer",
+        ],
+      }
+    },
     // Clone Camera Prompts Project
     {
       method: "shell.run",

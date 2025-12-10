@@ -354,7 +354,16 @@ async def generate_image(
     # output params
     autosave: bool,
     # batch params
-    batch_count: int = 1
+    batch_count: int = 1,
+    # seed variance params
+    sv_enabled: bool = False,
+    sv_noise_insert: str = "noise on beginning steps",
+    sv_randomize_percent: float = 50.0,
+    sv_strength: float = 20.0,
+    sv_steps_switchover_percent: float = 20.0,
+    sv_seed: int = 0,
+    sv_mask_starts_at: str = "beginning",
+    sv_mask_percent: float = 0.0
 ):
     """Generate images using the selected workflow. Yields (gallery_images, status, seed) tuples."""
     # Handle seed early so we can yield it immediately
@@ -428,6 +437,17 @@ async def generate_image(
             if use_lora and lora_name:
                 params["lora_name"] = lora_name
                 params["lora_strength"] = lora_strength
+            
+            # Add seed variance params
+            # When disabled, pass "disabled" to make the node a passthrough
+            params["sv_noise_insert"] = sv_noise_insert if sv_enabled else "disabled"
+            params["sv_randomize_percent"] = sv_randomize_percent
+            params["sv_strength"] = sv_strength
+            params["sv_steps_switchover_percent"] = sv_steps_switchover_percent
+            # Use main seed if sv_seed is 0, otherwise use the specified variance seed
+            params["sv_seed"] = current_seed if sv_seed == 0 else int(sv_seed)
+            params["sv_mask_starts_at"] = sv_mask_starts_at
+            params["sv_mask_percent"] = sv_mask_percent
             
             # Execute workflow
             result = await kit.execute(str(workflow_path), params)
@@ -1007,6 +1027,53 @@ def create_interface() -> gr.Blocks:
                                 randomize_seed = gr.Checkbox(label="🎲", value=True, scale=0, min_width=60)
                                 batch_count = gr.Slider(label="Batch", value=1, minimum=1, maximum=100, step=1, scale=1, info="Images to generate")
                         
+                        # Seed Variance - adds noise to text embeddings for more variation
+                        with gr.Accordion("🎲 Seed Variance", open=False):
+                            gr.Markdown("*Add controlled noise to text embeddings for more variation across seeds*")
+                            with gr.Row():
+                                sv_enabled = gr.Checkbox(label="Enable", value=False, scale=0, min_width=80)
+                                sv_noise_insert = gr.Dropdown(
+                                    label="Noise Insert",
+                                    choices=["noise on beginning steps", "noise on ending steps", "noise on all steps"],
+                                    value="noise on beginning steps",
+                                    scale=2,
+                                    info="Which steps use noisy embeddings"
+                                )
+                            with gr.Row():
+                                sv_randomize_percent = gr.Slider(
+                                    label="Randomize %",
+                                    value=50.0, minimum=0.0, maximum=100.0, step=1,
+                                    info="Percentage of embedding values to add noise to"
+                                )
+                                sv_strength = gr.Slider(
+                                    label="Strength",
+                                    value=20.0, minimum=0.0, maximum=100.0, step=0.1,
+                                    info="Scale of the random noise"
+                                )
+                            with gr.Row():
+                                sv_steps_switchover_percent = gr.Slider(
+                                    label="Steps Switchover %",
+                                    value=20.0, minimum=0.0, maximum=100.0, step=1,
+                                    info="When to switch between noisy and original embeddings"
+                                )
+                                sv_seed = gr.Number(
+                                    label="Variance Seed",
+                                    value=0, minimum=0, step=1,
+                                    info="Seed for noise generation (0 = use main seed)"
+                                )
+                            with gr.Row():
+                                sv_mask_starts_at = gr.Dropdown(
+                                    label="Mask Starts At",
+                                    choices=["beginning", "end"],
+                                    value="beginning",
+                                    info="Which part of prompt to protect from noise"
+                                )
+                                sv_mask_percent = gr.Slider(
+                                    label="Mask %",
+                                    value=0.0, minimum=0.0, maximum=100.0, step=1,
+                                    info="Percentage of prompt protected from noise"
+                                )
+                        
                         # LoRA settings
                         with gr.Accordion("🎨 LoRA", open=False):
                             with gr.Row():
@@ -1162,6 +1229,14 @@ Your models & LoRAs are automatically shared — no re-download needed!
 - **Describe Image**: Generates prompts from uploaded images (uses VL model)
 - Defaults work great, but you can change LLMs in the **⚙️ LLM Settings** tab
 - After changing models there, click **Save All Settings** to apply
+
+**🎲 Seed Variance**
+Distilled "turbo" models can produce similar images across different seeds, especially with detailed prompts. Seed Variance fixes this by adding controlled noise to text embeddings, giving you more diverse outputs.
+
+- **When to use**: Enable when your batch generations look too similar
+- **Start with**: Strength 15-30, Randomize 50%, Switchover 20%
+- **Key insight**: Detailed prompts = more variation (more values to randomize)
+- **Advanced**: Use masking to protect important parts of your prompt from noise
 
 **Tips**
 - Default settings are tuned for the Z-Image Turbo model
@@ -1714,7 +1789,10 @@ Your models & LoRAs are automatically shared — no re-download needed!
             unet_name, clip_name, vae_name,
             use_lora, lora_name, lora_strength,
             autosave,
-            batch_count
+            batch_count,
+            # Seed variance params
+            sv_enabled, sv_noise_insert, sv_randomize_percent, sv_strength,
+            sv_steps_switchover_percent, sv_seed, sv_mask_starts_at, sv_mask_percent
         ]
         
         # Wrapper functions for async generate (async generators)
