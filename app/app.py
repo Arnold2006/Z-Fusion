@@ -2627,7 +2627,7 @@ def main():
     print("="*50 + "\n")
     
     interface = create_interface()
-    interface.launch(server_name="127.0.0.1", server_port=7860, share=False)
+    interface.launch(server_name="127.0.0.1", share=False)
 
 
 if __name__ == "__main__":
