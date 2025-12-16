@@ -5,10 +5,20 @@ import random
 import sys
 import traceback
 from dataclasses import dataclass
-from typing import List, Tuple
+from typing import List, Tuple, TYPE_CHECKING
 
 import gradio as gr
 import torch
+
+if TYPE_CHECKING:
+    from modules import SharedServices
+
+# -----------------------------------------------------------------------------
+# Module Metadata (for modular architecture)
+# -----------------------------------------------------------------------------
+TAB_ID = "llm_settings"
+TAB_LABEL = "⚙️ LLM Settings"
+TAB_ORDER = 2
 
 # -----------------------------------------------------------------------------
 # PART 1: Backend Engine
@@ -699,3 +709,34 @@ class PromptAssistant:
                 self.unload_llms, 
                 outputs=[status_display]
             )
+
+
+# -----------------------------------------------------------------------------
+# Module Interface (for modular architecture)
+# -----------------------------------------------------------------------------
+
+def create_tab(services: "SharedServices") -> gr.TabItem:
+    """
+    Create the LLM Settings tab using the PromptAssistant's render_settings_ui().
+    
+    This function provides the module interface required by the modular architecture,
+    wrapping the existing render_settings_ui() method in a TabItem.
+    
+    Args:
+        services: SharedServices instance with all dependencies
+        
+    Returns:
+        gr.TabItem containing the LLM Settings interface
+    """
+    with gr.TabItem(TAB_LABEL, id=TAB_ID) as tab:
+        # Get the PromptAssistant instance from SharedServices
+        # If not available, create a temporary one for the settings UI
+        assistant = services.prompt_assistant
+        if assistant is None:
+            # Fallback: create a local instance (shouldn't happen in normal use)
+            assistant = PromptAssistant()
+        
+        # Render the settings UI using the existing method
+        assistant.render_settings_ui()
+    
+    return tab
