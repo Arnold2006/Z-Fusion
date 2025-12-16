@@ -1050,7 +1050,12 @@ def create_interface() -> gr.Blocks:
         overflow-y: auto !important;
         resize: vertical;
     }
-    .setup-banner {
+    /* Hide upload overlay on output gallery while keeping preview functional */
+    #output-gallery > button[aria-label*="upload"],
+    #output-gallery > button[aria-dropeffect="copy"] {
+        display: none !important;
+    }
+    .setup-banner
         background: linear-gradient(90deg, #ff6b35, #f7931e);
         color: white;
         padding: 12px 16px;
@@ -1358,11 +1363,12 @@ def create_interface() -> gr.Blocks:
                             label="Generated Images",
                             columns=4,
                             rows=2,
-                            height="auto",
+                            height=400,
                             object_fit="contain",
                             show_download_button=False,
+                            show_share_button=False,
                             preview=True,
-                            show_share_button=False
+                            elem_id="output-gallery"
                         )
                         with gr.Row():
                             save_btn = gr.Button("💾 Save", size="sm")
