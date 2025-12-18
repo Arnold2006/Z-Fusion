@@ -168,6 +168,7 @@
     "inputs": {
       "upscale_method": "nearest-exact",
       "megapixels": 2,
+      "resolution_steps": 1,
       "image": [
         "49",
         0
