@@ -15,6 +15,7 @@ import os
 import shutil
 import tempfile
 from pathlib import Path
+from typing import Any
 
 import gradio as gr
 from comfykit import ComfyKit
@@ -114,15 +115,60 @@ def maybe_clear_temp_on_start(settings: SettingsManager) -> None:
 
 
 # =============================================================================
+# Theme Configuration
+# =============================================================================
+
+# Built-in Gradio themes
+BUILTIN_THEMES = {
+    "Default": gr.themes.Default(),
+    "Soft": gr.themes.Soft(),
+    "Monochrome": gr.themes.Monochrome(),
+    "Glass": gr.themes.Glass(),
+    "Base": gr.themes.Base(),
+    "Ocean": gr.themes.Ocean(),
+    "Origin": gr.themes.Origin(),
+    "Citrus": gr.themes.Citrus(),
+}
+
+# Community themes from Hugging Face Spaces
+COMMUNITY_THEMES = {
+    "Miku": "NoCrypt/miku",
+    "Interstellar": "Nymbo/Interstellar",
+    "xkcd": "gstaff/xkcd",
+}
+
+
+def get_theme(settings: SettingsManager) -> Any:
+    """Get the Gradio theme based on settings."""
+    theme_name = settings.get("ui_theme", "Default")
+    
+    # Check built-in themes first
+    if theme_name in BUILTIN_THEMES:
+        logger.info(f"Using built-in theme: {theme_name}")
+        return BUILTIN_THEMES[theme_name]
+    
+    # Check community themes
+    if theme_name in COMMUNITY_THEMES:
+        theme_id = COMMUNITY_THEMES[theme_name]
+        logger.info(f"Using community theme: {theme_name} ({theme_id})")
+        return theme_id
+    
+    # Fallback to default
+    logger.warning(f"Unknown theme '{theme_name}', using Default")
+    return gr.themes.Default()
+
+
+# =============================================================================
 # Interface Creation
 # =============================================================================
 
-def create_interface(services: SharedServices) -> gr.Blocks:
+def create_interface(services: SharedServices, theme: Any = None) -> gr.Blocks:
     """
     Create the Gradio interface by discovering and loading modules.
     
     Args:
         services: SharedServices instance with all dependencies
+        theme: Gradio theme to apply (built-in theme object or HF theme string)
         
     Returns:
         gr.Blocks interface ready to launch
@@ -235,9 +281,19 @@ def create_interface(services: SharedServices) -> gr.Blocks:
         border-radius: 0 8px 8px 0 !important;
     }
 
+    /* Compact inline checkbox */
+    .checkbox-compact {
+        min-width: fit-content !important;
+        flex-grow: 0 !important;
+    }
+    .checkbox-compact > label {
+        padding: 0 !important;
+        gap: 6px !important;
+    }
+
     """
     
-    with gr.Blocks(title="Z-Image Turbo", css=css) as interface:
+    with gr.Blocks(title="Z-Image Turbo", css=css, theme=theme) as interface:
         # Discover and load modules
         modules = discover_modules(MODULES_DIR)
         
@@ -341,6 +397,10 @@ def main():
         system_monitor=SystemMonitor,
     )
     
+    # Get theme from settings
+    theme = get_theme(settings)
+    theme_name = settings.get("ui_theme", "Default")
+    
     # Print startup banner
     print("\n" + "="*50)
     print("⚡ Z-Image Turbo")
@@ -348,10 +408,11 @@ def main():
     print(f"ComfyUI: {kit.comfyui_url}")
     print(f"Models:  {MODELS_DIR}")
     print(f"Outputs: {outputs_dir}")
+    print(f"Theme:   {theme_name}")
     print("="*50 + "\n")
     
     # Create and launch interface
-    interface = create_interface(services)
+    interface = create_interface(services, theme=theme)
     interface.launch(server_name="127.0.0.1", share=False)
 
 

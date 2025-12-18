@@ -846,7 +846,9 @@ def create_tab(services: "SharedServices") -> gr.TabItem:
                 # Generation type tabs
                 with gr.Tabs():
                     with gr.TabItem("Text → Image"):
-                        generate_t2i_btn = gr.Button("⚡ Generate", variant="primary", size="lg")
+                        with gr.Row():
+                            generate_t2i_btn = gr.Button("⚡ Generate", variant="primary", size="sm", scale=3)
+                            enhance_btn = gr.Button("✨ Enhance", variant="huggingface", size="sm", scale=1)
                         with gr.Group():                        
                             with gr.Row():
                                 width = gr.Slider(label="Width", value=1024, minimum=512, maximum=2048, step=32)
@@ -874,11 +876,11 @@ def create_tab(services: "SharedServices") -> gr.TabItem:
                     with gr.TabItem("Image → Image"):
                         input_image = gr.Image(label="Input Image", type="filepath", height=360)
                         with gr.Row():
-                            generate_i2i_btn = gr.Button("⚡ Generate", variant="primary", size="lg", scale=2)
-                            i2i_describe_btn = gr.Button("🖼️ Describe", variant="secondary", size="lg", scale=1)
+                            generate_i2i_btn = gr.Button("⚡ Generate", variant="primary", size="sm", scale=3)
+                            i2i_describe_btn = gr.Button("🖼️ Describe", variant="huggingface", size="sm", scale=1)
                         with gr.Row():                                    
                             i2i_assist_status = gr.Textbox(
-                                value="💡 Tip: Use Describe to generate a prompt describing your image. A low denoise img2img pass can greatly enhance existing images. Add a character LoRA for powerful transformations!",
+                                value="💡 Use Describe to generate a prompt describing your image. A low denoise img2img pass can greatly enhance existing images. Add a character LoRA for powerful transformations!",
                                 lines=2.5,
                                 interactive=False,
                                 show_label=False
@@ -887,26 +889,7 @@ def create_tab(services: "SharedServices") -> gr.TabItem:
                             megapixels = gr.Slider(label="Megapixels", info="Scales against input image to maintain aspect ratio", value=1.5, minimum=0.5, maximum=3.0, step=0.1)
                             denoise = gr.Slider(label="Denoise", value=0.67, minimum=0.0, maximum=1.0, step=0.01)
                     
-                    with gr.TabItem("🤖 Prompt Assistant"):
-                        # Mode selection
-                        assist_mode = gr.Radio(
-                            choices=["Enhance Text", "Describe Image"],
-                            value="Enhance Text",
-                            label="Mode",
-                            interactive=True
-                        )
-                        # Image input for describe mode (hidden by default)
-                        assist_image = gr.Image(
-                            label="Image to Describe",
-                            type="filepath",
-                            height=200,
-                            visible=False
-                        )
-                        with gr.Row():
-                            enhance_btn = gr.Button("✨ Enhance", variant="primary", size="lg", scale=2)
-                            describe_btn = gr.Button("🖼️ Describe", variant="secondary", size="lg", scale=2, visible=False)
-                            clear_prompt_btn = gr.Button("🗑️ Clear", size="lg", scale=1)
-                        assist_status = gr.Textbox(label="Status", value="Ready", interactive=False, show_label=False, lines=1.5)
+
 
                 
                 # Generation settings - compact group
@@ -923,7 +906,7 @@ def create_tab(services: "SharedServices") -> gr.TabItem:
                     with gr.Row():                                   
                         seed = gr.Number(label="Seed", value=new_random_seed(), minimum=0, step=1, scale=1)
                         randomize_seed = gr.Checkbox(label="🎲", value=True, scale=0, min_width=60)
-                        batch_count = gr.Slider(label="Batch", value=1, minimum=1, maximum=100, step=1, scale=1, info="Images to generate")
+                        batch_count = gr.Slider(label="Batch", value=1, minimum=1, maximum=100, step=1, scale=2, info="Images to generate")
                 
                 # Seed Variance - adds noise to text embeddings for more variation
                 with gr.Accordion("🎲 Seed Variance", open=False):
@@ -1107,15 +1090,15 @@ def create_tab(services: "SharedServices") -> gr.TabItem:
                 selected_gallery_image = gr.State(value=None)
                 
                 with gr.Row():
-                    save_btn = gr.Button("💾 Save", size="sm")
-                    send_to_upscale_btn = gr.Button("🔍 Send to Upscale", size="sm")
+                    save_btn = gr.Button("💾 Save", size="sm", variant="primary")
+                    send_to_upscale_btn = gr.Button("🔍 Send to Upscale", size="sm", variant="huggingface")
                     open_folder_btn = gr.Button("📂 Open Folder", size="sm")
                 
                 with gr.Row():
-                    autosave = gr.Checkbox(label="Auto-save", value=False)
-                    unload_btn = gr.Button("🗑️ Unload Models", size="sm")
-                
-                gen_status = gr.Textbox(label="Status", interactive=False, show_label=False, lines=2)
+                    autosave = gr.Checkbox(label="Auto-save", value=False, elem_classes="checkbox-compact")
+                    gen_status = gr.Textbox(label="Status", interactive=False, show_label=False, lines=2)
+                with gr.Row():
+                    unload_btn = gr.Button("🗑️ Unload Comfyui Models", size="sm", variant="stop")
                 
                 # System monitor
                 with gr.Row():
@@ -1142,10 +1125,10 @@ def create_tab(services: "SharedServices") -> gr.TabItem:
                 with gr.Accordion("🔍 Read Image Metadata", open=False):
                     gr.Markdown("*Drop a ComfyUI-generated image to extract prompt & settings*")
                     meta_image = gr.Image(label="Drop image here", type="filepath", height=250)
-                    meta_output = gr.Textbox(label="Metadata", lines=10, interactive=False, show_copy_button=True)
+                    meta_output = gr.Textbox(label="Metadata", lines=10, interactive=False, placeholder="Note that comfyui images not generated in z-image-fusion may not have compatible metadata, ie from workflows with parameters set in custom nodes etc.  SeedVR2 upscaled images don't contain generation metadata.", show_copy_button=True)
                     with gr.Row():
-                        meta_to_prompt_btn = gr.Button("📋 Copy Prompt", size="sm")
-                        meta_to_settings_btn = gr.Button("⚙️ Apply Settings", size="sm")
+                        meta_to_prompt_btn = gr.Button("📋 Copy Prompt", size="sm", variant="huggingface")
+                        meta_to_settings_btn = gr.Button("⚙️ Apply Settings", size="sm", variant="primary")
                 
                 # Camera prompts helper
                 with gr.Accordion("📷 Camera Prompts", open=False):
@@ -1163,11 +1146,10 @@ def create_tab(services: "SharedServices") -> gr.TabItem:
 **Already have ComfyUI via Pinokio?**  
 Your models & LoRAs are automatically shared — no re-download needed!
 
-**🤖 Prompt Assistant**
-- **Enhance Text**: Expands simple prompts into detailed descriptions
-- **Describe Image**: Generates prompts from uploaded images (uses VL model)
+**✨ Prompt Enhance**
+- Click **Enhance** next to Generate to expand simple prompts into detailed descriptions
+- Use **Describe** in Image→Image to generate prompts from uploaded images
 - Defaults work great, but you can change LLMs in the **⚙️ LLM Settings** tab
-- After changing models there, click **Save All Settings** to apply
 
 **🎲 Seed Variance**
 Distilled "turbo" models can produce similar images across different seeds, especially with detailed prompts. Seed Variance fixes this by adding controlled noise to text embeddings, giving you more diverse outputs.
@@ -1201,13 +1183,8 @@ Distilled "turbo" models can produce similar images across different seeds, espe
             i2i_assist_status=i2i_assist_status,
             megapixels=megapixels,
             denoise=denoise,
-            # Prompt assistant
-            assist_mode=assist_mode,
-            assist_image=assist_image,
+            # Prompt enhance
             enhance_btn=enhance_btn,
-            describe_btn=describe_btn,
-            clear_prompt_btn=clear_prompt_btn,
-            assist_status=assist_status,
             # Settings
             steps=steps,
             cfg=cfg,
@@ -1316,12 +1293,7 @@ def _setup_event_handlers(
     i2i_assist_status = components["i2i_assist_status"]
     megapixels = components["megapixels"]
     denoise = components["denoise"]
-    assist_mode = components["assist_mode"]
-    assist_image = components["assist_image"]
     enhance_btn = components["enhance_btn"]
-    describe_btn = components["describe_btn"]
-    clear_prompt_btn = components["clear_prompt_btn"]
-    assist_status = components["assist_status"]
     steps = components["steps"]
     cfg = components["cfg"]
     shift = components["shift"]
@@ -1393,46 +1365,23 @@ def _setup_event_handlers(
     samplers = components["samplers"]
     schedulers = components["schedulers"]
     
-    # Prompt Assistant mode toggle
-    def toggle_assist_mode(mode):
-        is_describe = mode == "Describe Image"
-        return (
-            gr.update(visible=is_describe),  # assist_image
-            gr.update(visible=not is_describe),  # enhance_btn
-            gr.update(visible=is_describe),  # describe_btn
-        )
-    
-    assist_mode.change(
-        fn=toggle_assist_mode,
-        inputs=[assist_mode],
-        outputs=[assist_image, enhance_btn, describe_btn]
-    )
-    
-    # Prompt Assistant buttons - use services.prompt_assistant
+    # Prompt Enhance button - outputs to gen_status
     if services.prompt_assistant:
         enhance_btn.click(
             fn=services.prompt_assistant.enhance_prompt,
             inputs=[prompt],
-            outputs=[prompt, assist_status]
+            outputs=[prompt, gen_status]
         )
         
-        describe_btn.click(
-            fn=services.prompt_assistant.describe_image,
-            inputs=[assist_image, prompt],
-            outputs=[prompt, assist_status]
-        )
-        
-        # I2I tab describe button - uses the input_image directly
+        # I2I tab describe button - clears prompt first, then describes image
         i2i_describe_btn.click(
+            fn=lambda: ("", "👁️ Preparing..."),
+            outputs=[prompt, i2i_assist_status]
+        ).then(
             fn=services.prompt_assistant.describe_image,
             inputs=[input_image, prompt],
             outputs=[prompt, i2i_assist_status]
         )
-    
-    clear_prompt_btn.click(
-        fn=lambda: "",
-        outputs=[prompt]
-    )
     
     # Resolution preset handlers
     def on_res_base_change(base):

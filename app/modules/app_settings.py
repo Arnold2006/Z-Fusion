@@ -1,8 +1,8 @@
 """
 App Settings Module
 
-Provides the application-wide settings tab with output directory
-and temp folder controls.
+Provides the application-wide settings tab with output directory,
+temp folder controls, and UI theme selection.
 """
 
 import logging
@@ -28,6 +28,15 @@ TAB_ORDER = 3
 
 # Gradio temp directory (uses GRADIO_TEMP_DIR env var if set, else system temp)
 GRADIO_TEMP_DIR = Path(os.environ.get("GRADIO_TEMP_DIR", tempfile.gettempdir()))
+
+# Available themes
+BUILTIN_THEMES = ["Default", "Soft", "Monochrome", "Glass", "Base", "Ocean", "Origin", "Citrus"]
+COMMUNITY_THEMES = {
+    "Miku": "NoCrypt/miku",
+    "Interstellar": "Nymbo/Interstellar",
+    "xkcd": "gstaff/xkcd",
+}
+ALL_THEME_NAMES = BUILTIN_THEMES + list(COMMUNITY_THEMES.keys())
 
 
 def clear_temp_folder() -> tuple[bool, str]:
@@ -71,7 +80,8 @@ def open_folder(folder_path: Path):
 
 def create_tab(services: "SharedServices") -> gr.TabItem:
     """
-    Create the App Settings tab with output directory and temp folder controls.
+    Create the App Settings tab with output directory, temp folder controls,
+    and UI theme selection.
     
     Args:
         services: SharedServices instance with all dependencies
@@ -83,32 +93,59 @@ def create_tab(services: "SharedServices") -> gr.TabItem:
     outputs_dir = services.get_outputs_dir()
     default_outputs_dir = services.app_dir / "outputs" / "z-image-fusion"
     
+    # Get current theme
+    current_theme = services.settings.get("ui_theme", "Default")
+    
     with gr.TabItem(TAB_LABEL, id=TAB_ID) as tab:
-        gr.Markdown("### Output Directory")
-        gr.Markdown("*Set a custom folder for saving generated images and upscaled videos.*")
-        with gr.Row():
-            app_outputs_dir = gr.Textbox(
-                label="Output Folder",
-                value=str(outputs_dir),
-                placeholder="Leave empty for default",
-                scale=3
-            )
-            app_outputs_browse_btn = gr.Button("📂 Browse", size="sm", scale=0)
-        with gr.Row():
-            app_outputs_save_btn = gr.Button("💾 Save", variant="primary", size="sm")
-            app_outputs_reset_btn = gr.Button("↩️ Reset to Default", size="sm")
-        gr.Markdown(f"*Default: `{default_outputs_dir}`*")
         
-        gr.Markdown("---")
-        gr.Markdown("### Temp Folder")
-        gr.Markdown("*Gradio stores temporary files (previews, cached images) in the system temp folder.*")
-        with gr.Row():
-            clear_temp_on_start = gr.Checkbox(
-                label="Clear temp folder on app start",
-                value=get_clear_temp_on_start(services.settings)
-            )
-            clear_temp_btn = gr.Button("🗑️ Clear Now", size="sm")
-        app_settings_status = gr.Textbox(label="", interactive=False, show_label=False)
+        # === Appearance Accordion (Theme + Colors) ===
+        with gr.Accordion("🎨 Appearance", open=False):
+            valid_colors = ["purple", "blue", "coral", "teal"]
+            with gr.Row():
+                theme_dropdown = gr.Dropdown(
+                    choices=ALL_THEME_NAMES,
+                    value=current_theme,
+                    label="UI Theme",
+                    info="Requires app restart",
+                    scale=2
+                )
+                analysis_color_scheme = gr.Dropdown(
+                    label="Analysis Panel Color",
+                    choices=valid_colors,
+                    value=services.settings.get("analysis_color_scheme"),
+                    scale=1
+                )
+            with gr.Row():
+                theme_apply_btn = gr.Button("🎨 Apply Theme & Restart", variant="primary", size="sm")
+                analysis_color_apply_btn = gr.Button("✨ Apply Color", size="sm")
+        
+        # === Storage Accordion (Output Dir + Temp) ===
+        with gr.Accordion("📁 Storage", open=False):
+            gr.Markdown("**Output Directory** — *Where generated images and upscaled videos are saved.*")
+            with gr.Row():
+                app_outputs_dir = gr.Textbox(
+                    value=str(outputs_dir),
+                    placeholder="Leave empty for default",
+                    show_label=False,
+                    scale=3
+                )
+                app_outputs_browse_btn = gr.Button("📂", size="sm", scale=0)
+            with gr.Row():
+                app_outputs_save_btn = gr.Button("💾 Save Path", variant="primary", size="sm")
+                app_outputs_reset_btn = gr.Button("↩️ Reset to Default", size="sm")
+            gr.Markdown(f"*Default: `{default_outputs_dir}`*")
+            
+            gr.Markdown("---")
+            gr.Markdown("**Temp Folder** — *Gradio stores previews and cached images here.*")
+            with gr.Row():
+                clear_temp_on_start = gr.Checkbox(
+                    label="Clear temp folder on app start",
+                    value=get_clear_temp_on_start(services.settings)
+                )
+                clear_temp_btn = gr.Button("🗑️ Clear Now", size="sm")
+        
+        # Status textbox outside accordions
+        app_settings_status = gr.Textbox(label="", interactive=False, show_label=False, lines=1)
         
         # ===== EVENT HANDLERS =====
         
@@ -165,6 +202,32 @@ def create_tab(services: "SharedServices") -> gr.TabItem:
         
         app_outputs_browse_btn.click(
             fn=browse_outputs_dir,
+            outputs=[app_settings_status]
+        )
+        
+        # Theme handlers
+        def on_theme_apply(theme_name):
+            if not theme_name:
+                return "❌ Please select a theme first"
+            services.settings.set("ui_theme", theme_name)
+            return f"✓ Theme set to '{theme_name}'. Please restart the app and refresh the webui to apply."
+        
+        theme_apply_btn.click(
+            fn=on_theme_apply,
+            inputs=[theme_dropdown],
+            outputs=[app_settings_status]
+        )
+        
+        # Appearance handlers
+        def on_analysis_color_apply(color):
+            if not color:
+                return "❌ Please select a color first"
+            services.settings.set("analysis_color_scheme", color)
+            return f"✓ Analysis color set to {color}"
+        
+        analysis_color_apply_btn.click(
+            fn=on_analysis_color_apply,
+            inputs=[analysis_color_scheme],
             outputs=[app_settings_status]
         )
         
