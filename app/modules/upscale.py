@@ -1159,8 +1159,8 @@ def create_tab(services: "SharedServices") -> gr.TabItem:
             upscale_latent_noise,
         ]
         
-        # Image Upscale - wrapper to also switch output tab and analyze output
-        async def upscale_image_and_switch(
+        # Image Upscale - main function returns primary outputs
+        async def upscale_image_main(
             input_image, seed, randomize_seed, resolution, max_resolution,
             dit_model, blocks_to_swap, attention_mode,
             encode_tiled, encode_tile_size, encode_tile_overlap,
@@ -1177,13 +1177,16 @@ def create_tab(services: "SharedServices") -> gr.TabItem:
                 input_noise, latent_noise, autosave
             )
             # result = (slider_tuple, status, seed, upscaled_path, original_path, resolution)
-            upscaled_path = result[3]
+            # Return: slider, seed, hidden states (status/analysis/tabs handled in .then())
+            return result[0], result[2], result[1], result[3], result[4], result[5]
+        
+        # Secondary handler for status, analysis, and tab switch (no progress spinner)
+        def upscale_image_finalize(status, upscaled_path):
             analysis = analyze_media(upscaled_path, is_video=False, color_scheme=get_analysis_color())
-            # Return result + output analysis panel + tab switch
-            return result + (analysis, gr.Tabs(selected="upscale_image_result"))
+            return status, analysis, gr.Tabs(selected="upscale_image_result")
         
         upscale_btn.click(
-            fn=upscale_image_and_switch,
+            fn=upscale_image_main,
             inputs=[
                 upscale_input_image,
                 upscale_seed,
@@ -1191,7 +1194,11 @@ def create_tab(services: "SharedServices") -> gr.TabItem:
                 upscale_resolution,
                 upscale_max_resolution,
             ] + upscale_common_inputs,
-            outputs=[upscale_slider, upscale_status, upscale_seed, upscale_result_path, upscale_original_path, upscale_result_resolution, output_image_analysis, upscale_output_tabs]
+            outputs=[upscale_slider, upscale_seed, upscale_status, upscale_result_path, upscale_original_path, upscale_result_resolution]
+        ).then(
+            fn=upscale_image_finalize,
+            inputs=[upscale_status, upscale_result_path],
+            outputs=[upscale_status, output_image_analysis, upscale_output_tabs]
         )
         
         # Video export inputs (before common inputs)
@@ -1205,8 +1212,8 @@ def create_tab(services: "SharedServices") -> gr.TabItem:
             upscale_video_filename,
         ]
         
-        # Video Upscale - wrapper to also switch output tab and analyze output
-        async def upscale_video_and_switch(
+        # Video Upscale - main function returns primary outputs
+        async def upscale_video_main(
             input_video, seed, randomize_seed, resolution,
             video_format, video_crf, video_pix_fmt, prores_profile,
             save_png_sequence, save_to_comfyui, filename_prefix,
@@ -1227,20 +1234,27 @@ def create_tab(services: "SharedServices") -> gr.TabItem:
                 input_noise, latent_noise
             )
             # result = (video_path, status, seed, output_path)
-            output_path = result[3]
+            # Return: video, seed, hidden states (status/analysis/tabs handled in .then())
+            return result[0], result[2], result[1], result[3]
+        
+        # Secondary handler for status, analysis, and tab switch (no progress spinner)
+        def upscale_video_finalize(status, output_path):
             analysis = analyze_media(output_path, is_video=True, color_scheme=get_analysis_color())
-            # Return result + output analysis panel + tab switch
-            return result + (analysis, gr.Tabs(selected="upscale_video_result"))
+            return status, analysis, gr.Tabs(selected="upscale_video_result")
         
         upscale_video_btn.click(
-            fn=upscale_video_and_switch,
+            fn=upscale_video_main,
             inputs=[
                 upscale_input_video,
                 upscale_seed,
                 upscale_randomize_seed,
                 upscale_video_resolution,
             ] + upscale_video_export_inputs + upscale_video_common_inputs,
-            outputs=[upscale_output_video, upscale_status, upscale_seed, upscale_video_result_path, output_video_analysis, upscale_output_tabs]
+            outputs=[upscale_output_video, upscale_seed, upscale_status, upscale_video_result_path]
+        ).then(
+            fn=upscale_video_finalize,
+            inputs=[upscale_status, upscale_video_result_path],
+            outputs=[upscale_status, output_video_analysis, upscale_output_tabs]
         )
         
         # Video format change handler - show/hide format-specific options
