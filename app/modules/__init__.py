@@ -28,7 +28,8 @@ logger = logging.getLogger(__name__)
 # Unknown modules are appended alphabetically after these
 TAB_ORDER = [
     "zimage",        # ⚡ Z-Image Turbo
-    "upscale",       # 🔍 Upscale  
+    "upscale",       # 🔍 Upscale
+    "experimental",  # 🧪 Experimental
     "llm_settings",  # ⚙️ LLM Settings (from prompt_assistant)
     "app_settings",  # 🛠️ App Settings
 ]
