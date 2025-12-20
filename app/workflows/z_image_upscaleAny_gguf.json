@@ -71,7 +71,7 @@
       "noise_seed": 83098234230730,
       "cfg": 1,
       "model": [
-        "199",
+        "211",
         0
       ],
       "positive": [
@@ -203,6 +203,48 @@
     "class_type": "ImageScaleToTotalPixels",
     "_meta": {
       "title": "ImageScale, $megapixels"
+    }
+  },
+  "209": {
+    "inputs": {
+      "lora_name": "none.safetensors",
+      "strength_model": 0,
+      "model": [
+        "199",
+        0
+      ]
+    },
+    "class_type": "LoraLoaderModelOnly",
+    "_meta": {
+      "title": "$lora1_name.lora_name!, $lora1_strength.strength_model!"
+    }
+  },
+  "210": {
+    "inputs": {
+      "lora_name": "none.safetensors",
+      "strength_model": 0,
+      "model": [
+        "209",
+        0
+      ]
+    },
+    "class_type": "LoraLoaderModelOnly",
+    "_meta": {
+      "title": "$lora2_name.lora_name!, $lora2_strength.strength_model!"
+    }
+  },
+  "211": {
+    "inputs": {
+      "lora_name": "none.safetensors",
+      "strength_model": 0,
+      "model": [
+        "210",
+        0
+      ]
+    },
+    "class_type": "LoraLoaderModelOnly",
+    "_meta": {
+      "title": "$lora3_name.lora_name!, $lora3_strength.strength_model!"
     }
   }
 }

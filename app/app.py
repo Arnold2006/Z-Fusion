@@ -358,6 +358,50 @@ def _wire_image_transfers(services: SharedServices):
             logger.warning("Failed to wire Z-Image -> Upscale (receiver not ready)")
     else:
         logger.warning("Could not wire Z-Image -> Upscale - some components not registered")
+    
+    # Wire Experimental "Send to SeedVR2" button
+    exp_send_btn = services.inter_module.get_component("experimental_send_to_upscale_btn")
+    exp_selected = services.inter_module.get_component("experimental_selected_image")
+    exp_result = services.inter_module.get_component("experimental_result_path")
+    exp_status = services.inter_module.get_component("experimental_status")
+    
+    if all([exp_send_btn, exp_result, exp_status]):
+        # Create a simple handler that uses result_path directly (not gallery)
+        def exp_send_handler(result_path, selected_img):
+            import gradio as gr
+            image_to_send = selected_img or result_path
+            if not image_to_send:
+                return "❌ No image to send", gr.update(), gr.update(), gr.update()
+            
+            receiver = image_transfer.get_receiver("upscale")
+            if receiver:
+                image_transfer.set_pending("upscale", image_to_send)
+                return (
+                    f"✓ Sent to {receiver.label}",
+                    image_to_send,
+                    f"✓ Received image",
+                    gr.Tabs(selected="upscale")
+                )
+            return "❌ Upscale tab not available", gr.update(), gr.update(), gr.update()
+        
+        receiver = image_transfer.get_receiver("upscale")
+        if receiver:
+            outputs = [exp_status, receiver.input_component]
+            if receiver.status_component:
+                outputs.append(receiver.status_component)
+            else:
+                import gradio as gr
+                outputs.append(gr.State())
+            outputs.append(services.inter_module.main_tabs)
+            
+            exp_send_btn.click(
+                fn=exp_send_handler,
+                inputs=[exp_result, exp_selected],
+                outputs=outputs
+            )
+            logger.info("Wired Experimental -> Upscale image transfer")
+        else:
+            logger.warning("Failed to wire Experimental -> Upscale (receiver not ready)")
 
 
 # =============================================================================
