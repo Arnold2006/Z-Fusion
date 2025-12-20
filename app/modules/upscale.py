@@ -47,7 +47,7 @@ UPSCALE_BUILTIN_DEFAULTS = {
     "Image Default": {
         "dit_model": DEFAULT_SEEDVR2_DIT,
         "blocks_to_swap": 32,
-        "attention_mode": "flash_attn",
+        "attention_mode": "flash_attn_2",
         "batch_size": 1,
         "uniform_batch": False,
         "color_correction": "lab",
@@ -75,7 +75,7 @@ UPSCALE_BUILTIN_DEFAULTS = {
     "Video Default": {
         "dit_model": "seedvr2_ema_3b_fp16.safetensors",
         "blocks_to_swap": 32,
-        "attention_mode": "flash_attn",
+        "attention_mode": "flash_attn_2",
         "batch_size": 33,
         "uniform_batch": True,
         "color_correction": "lab",
@@ -644,7 +644,7 @@ def create_tab(services: "SharedServices") -> gr.TabItem:
         return (
             preset.get("dit_model", DEFAULT_SEEDVR2_DIT),
             gr.update(value=preset.get("blocks_to_swap", 36), maximum=max_blocks),
-            preset.get("attention_mode", "flash_attn"),
+            preset.get("attention_mode", "flash_attn_2"),
             preset.get("batch_size", 1),
             preset.get("uniform_batch", False),
             preset.get("color_correction", "lab"),
@@ -792,9 +792,9 @@ def create_tab(services: "SharedServices") -> gr.TabItem:
                         )
                         upscale_attention_mode = gr.Dropdown(
                             label="Attention",
-                            choices=["sdpa", "flash_attn"],
+                            choices=["sdpa", "flash_attn_2", "sageattn_2"],
                             value=initial_preset.get("attention_mode", "sdpa"),
-                            info="flash_attn is faster if available"
+                            info="flash_attn_2/sageattn_2 faster if available"
                         )
                 
                 with gr.Accordion("🎛️ Advanced Settings", open=False):
