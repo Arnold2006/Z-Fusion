@@ -1125,7 +1125,7 @@ def create_tab(services: "SharedServices") -> gr.TabItem:
                 with gr.Accordion("🔍 Read Image Metadata", open=False):
                     gr.Markdown("*Drop a ComfyUI-generated image to extract prompt & settings*")
                     meta_image = gr.Image(label="Drop image here", type="filepath", height=250)
-                    meta_output = gr.Textbox(label="Metadata", lines=10, interactive=False, placeholder="Note that comfyui images not generated in z-image-fusion may not have compatible metadata, ie from workflows with parameters set in custom nodes etc.  SeedVR2 upscaled images don't contain generation metadata.", show_copy_button=True)
+                    meta_output = gr.Textbox(label="Metadata", lines=10, interactive=False, placeholder="Note that comfyui images not generated in z-fusion may not have compatible metadata, ie from workflows with parameters set in custom nodes etc.  SeedVR2 upscaled images don't contain generation metadata.", show_copy_button=True)
                     with gr.Row():
                         meta_to_prompt_btn = gr.Button("📋 Copy Prompt", size="sm", variant="huggingface")
                         meta_to_settings_btn = gr.Button("⚙️ Apply Settings", size="sm", variant="primary")
@@ -1160,7 +1160,7 @@ Distilled "turbo" models can produce similar images across different seeds, espe
 
 **Tips**
 - Default settings are tuned for the Z-Image Turbo model
-- Use 🧹 **Unload ComfyUI Models** to keep Z-Image-Fusion active while freeing resources for other activities.
+- Use 🧹 **Unload ComfyUI Models** to keep Z-Fusion active while freeing resources for other activities.
 - Check the GPU/CPU monitor to track resource usage
 """)
         

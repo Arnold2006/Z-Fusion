@@ -1,6 +1,6 @@
-# Z-Image Fusion
+# Z-Fusion
 
-An enhanced Gradio interface for fast image generation using the Z-Image 6B turbo model, powered by a ComfyUI backend.
+An enhanced Gradio interface for fast image generation powered by a ComfyUI backend.
 
 This project is designed for 1-click installing via [Pinokio](https://pinokio.co/)
 
