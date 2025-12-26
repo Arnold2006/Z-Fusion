@@ -869,7 +869,7 @@ def create_tab(services: "SharedServices") -> gr.TabItem:
     with gr.TabItem(TAB_LABEL, id=TAB_ID) as tab:
         # Setup banner - shown when no models installed
         setup_banner = gr.Markdown(
-            "⚠️ **Setup Required** — Download models in the **🔧 Models** section below to get started!",
+            "⚠️ **Setup Required** — Download all the required Z-Image models from the **📦 Model Management** section. <a href='#models-section'> Click here to get started!</a>",
             visible=show_setup_banner,
             elem_classes=["setup-banner"]
         )
@@ -1037,7 +1037,7 @@ def create_tab(services: "SharedServices") -> gr.TabItem:
                         model_defaults_status = gr.Textbox(value="", show_label=False, container=False, interactive=False, scale=2)
                     
                     # Model Management - auto-open if setup needed
-                    with gr.Accordion("📦 Model Management", open=show_setup_banner):
+                    with gr.Accordion("📦 Model Management", open=show_setup_banner, elem_id="models-section"):
                         with gr.Row():
                             open_diffusion_btn = gr.Button("📂 diffusion_models", size="sm")
                             open_te_btn = gr.Button("📂 text_encoders", size="sm")

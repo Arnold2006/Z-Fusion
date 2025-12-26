@@ -39,7 +39,7 @@ CUSTOM_NODE_NAME = "ComfyUI-EulerDiscreteScheduler"
 CUSTOM_NODE_REPO = "https://github.com/erosDiffusion/ComfyUI-EulerDiscreteScheduler.git"
 
 # Status message constants
-STATUS_UPSCALING = "⏳ Upscaling..."
+STATUS_UPSCALING = "⏳ Enhancing..."
 STATUS_SUCCESS_PREFIX = "✓"
 STATUS_ERROR_PREFIX = "❌"
 
@@ -178,7 +178,7 @@ def install_custom_node(custom_nodes_dir: Path, repo_url: str, node_name: str) -
         if result.returncode != 0:
             error_msg = result.stderr.strip() or result.stdout.strip() or "Unknown error"
             return False, f"Failed to clone: {error_msg}"
-        return True, f"✓ Installed '{node_name}'. Please restart ComfyUI to load the node."
+        return True, f"✓ Installed '{node_name}'. Please stop and restart app to load the node."
     except subprocess.TimeoutExpired:
         return False, "Installation timed out. Check your network connection."
     except FileNotFoundError:
@@ -201,7 +201,7 @@ def update_custom_node(custom_nodes_dir: Path, node_name: str) -> tuple[bool, st
             return False, f"Failed to update: {result.stderr.strip() or 'Unknown error'}"
         if "Already up to date" in result.stdout:
             return True, f"✓ '{node_name}' is already up to date"
-        return True, f"✓ Updated '{node_name}'. Please restart ComfyUI to apply changes."
+        return True, f"✓ Updated '{node_name}'. Please stop and restart app to load the node."
     except subprocess.TimeoutExpired:
         return False, "Update timed out."
     except Exception as e:
@@ -559,6 +559,10 @@ def create_tab(services: "SharedServices") -> gr.TabItem:
     
     with gr.TabItem(TAB_LABEL, id=TAB_ID) as tab:
         gr.Markdown("## 🧪 Experimental Workflows")
+        gr.Markdown(
+            "⚠️ Custom Node requires installation, please <a href='#install-section'>click to install.</a>.", 
+            visible=not is_installed
+        )
         
         with gr.Tabs():
             with gr.TabItem("🔍 UpscaleAny", id="upscale_any"):
@@ -678,7 +682,7 @@ def create_tab(services: "SharedServices") -> gr.TabItem:
                                 vae_name = gr.Dropdown(label="VAE", choices=vae_models, value=get_default_model(vae_models, DEFAULT_VAE))
                         
                         # Custom node status
-                        with gr.Accordion("📦 Custom Node Status", open=True):
+                        with gr.Accordion("📦 Custom Node Status", open=True, elem_id="install-section"):
                             node_status = gr.Textbox(
                                 label="ComfyUI-EulerDiscreteScheduler",
                                 value="✓ Installed" if is_installed else "⚠️ Not installed - Required for workflow",
