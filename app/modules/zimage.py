@@ -1151,6 +1151,16 @@ Your models & LoRAs are automatically shared — no re-download needed!
 - Use **Describe** in Image→Image to generate prompts from uploaded images
 - Defaults work great, but you can change LLMs in the **⚙️ LLM Settings** tab
 
+**🎲 Wildcards**
+Add variety to your prompts with random substitutions:
+- `__name__` → Replaced with random line from `wildcards/name.txt`
+- `{option1|option2|option3}` → Random inline selection
+- Example: `A __camera__ of a {man|woman} with __eyecolor__`
+
+The **seed determines which options are selected** — same prompt + seed = same result. This means you can recreate any image perfectly from its metadata, even when using wildcards!
+
+Manage wildcard files in **🛠️ App Settings → 🎲 Wildcards**, where you can also test prompts before generating.
+
 **🎲 Seed Variance**
 Distilled "turbo" models can produce similar images across different seeds, especially with detailed prompts. Seed Variance fixes this by adding controlled noise to text embeddings, giving you more diverse outputs.
 - **When to use**: Enable when your batch generations look too similar
@@ -1733,6 +1743,9 @@ def _setup_event_handlers(
     services.inter_module.register_component("zimage_selected_gallery_image", selected_gallery_image)
     services.inter_module.register_component("zimage_output_gallery", output_gallery)
     services.inter_module.register_component("zimage_gen_status", gen_status)
+    services.inter_module.register_component("zimage_prompt", prompt)
+    services.inter_module.register_component("zimage_seed", seed)
+    services.inter_module.register_component("zimage_randomize_seed", randomize_seed)
     
     # Open folder helpers
     def open_folder(folder_path: Path):

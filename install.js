@@ -15,6 +15,24 @@ module.exports = {
       }
     },
 
+    // Copy our custom node into ComfyUI
+    {
+      method: "fs.copy",
+      params: {
+        src: "app/custom_nodes/z-image-wildcards",
+        dest: "app/comfyui/custom_nodes/z-image-wildcards"
+      }
+    },
+    // Copy starter wildcards folder only if it doesn't exist yet
+    {
+      when: "{{!exists('app/comfyui/wildcards')}}",
+      method: "fs.copy",
+      params: {
+        src: "app/wildcards",
+        dest: "app/comfyui/wildcards"
+      }
+    },
+
     {
       method: "shell.run",
       params: {

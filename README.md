@@ -61,4 +61,5 @@ MIT License - See [LICENSE](LICENSE) file
 - Upscaling via [ComfyUI-SeedVR2_VideoUpscaler](https://github.com/numz/ComfyUI-SeedVR2_VideoUpscaler) (Apache-2.0)
 - Video export via [ComfyUI-VideoHelperSuite](https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite) (GPL-3.0)
 - Seed variance via [SeedVarianceEnhancer](https://github.com/ChangeTheConstants/SeedVarianceEnhancer) (MIT)
+- Wildcards based on [comfyui_wildcards](https://github.com/lordgasmic/comfyui_wildcards)
 - Camera prompts reference by [CameraPromptsGenerator](https://github.com/demon4932/CameraPromptsGenerator) (MIT)

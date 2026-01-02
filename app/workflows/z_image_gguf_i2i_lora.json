@@ -84,11 +84,12 @@
       "clip": [
         "57",
         0
-      ]
+      ],
+      "seed": 0
     },
-    "class_type": "CLIPTextEncode",
+    "class_type": "CLIPTextEncodeWithWildcards",
     "_meta": {
-      "title": "$prompt.text!"
+      "title": "$prompt.text!, $seed"
     }
   },
   "47": {

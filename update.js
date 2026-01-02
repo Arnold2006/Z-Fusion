@@ -24,6 +24,24 @@ module.exports = {
       }
     },
 
+    // Copy/update our custom node (always overwrite - it's code)
+    {
+      method: "fs.copy",
+      params: {
+        src: "app/custom_nodes/z-image-wildcards",
+        dest: "app/comfyui/custom_nodes/z-image-wildcards"
+      }
+    },
+    // Copy starter wildcards folder only if it doesn't exist yet
+    {
+      when: "{{!exists('app/comfyui/wildcards')}}",
+      method: "fs.copy",
+      params: {
+        src: "app/wildcards",
+        dest: "app/comfyui/wildcards"
+      }
+    },
+
     {
       method: "shell.run",
       params: {

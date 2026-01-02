@@ -34,6 +34,13 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
+# Suppress ComfyKit's "Duplicate parameter name" warning (expected when reusing seed for wildcards)
+class DuplicateParamFilter(logging.Filter):
+    def filter(self, record):
+        return "Duplicate parameter name:" not in record.getMessage()
+
+logging.getLogger("PM").addFilter(DuplicateParamFilter())
+
 # =============================================================================
 # Path Configuration
 # =============================================================================
@@ -47,6 +54,35 @@ DEFAULT_OUTPUTS_DIR = APP_DIR / "outputs" / "z-image-fusion"
 
 # Gradio temp directory (uses GRADIO_TEMP_DIR env var if set, else system temp)
 GRADIO_TEMP_DIR = Path(os.environ.get("GRADIO_TEMP_DIR", tempfile.gettempdir()))
+
+
+# =============================================================================
+# Startup Migrations
+# =============================================================================
+
+def ensure_custom_nodes_installed():
+    """
+    Ensure custom nodes are copied into ComfyUI.
+    
+    This handles the case where a user updates from a version before wildcards
+    and our localized custom_nodes were added — the first update pulls the new files but the old update.js
+    doesn't have the fs.copy steps yet.
+    """
+    # Custom node
+    src_node = APP_DIR / "custom_nodes" / "z-image-wildcards"
+    dest_node = APP_DIR / "comfyui" / "custom_nodes" / "z-image-wildcards"
+    
+    if src_node.exists() and not dest_node.exists():
+        logger.info("Copying z-image-wildcards custom node into ComfyUI...")
+        shutil.copytree(src_node, dest_node)
+    
+    # Wildcards folder
+    src_wildcards = APP_DIR / "wildcards"
+    dest_wildcards = APP_DIR / "comfyui" / "wildcards"
+    
+    if src_wildcards.exists() and not dest_wildcards.exists():
+        logger.info("Copying starter wildcards into ComfyUI...")
+        shutil.copytree(src_wildcards, dest_wildcards)
 
 
 # =============================================================================
@@ -471,6 +507,30 @@ def _wire_image_transfers(services: SharedServices):
             logger.info("Wired Experimental Batch -> Upscale image transfer")
     else:
         logger.warning("Failed to wire Experimental -> Upscale (receiver not ready)")
+    
+    # Wire Wildcards "Send to Z-Image" button
+    wildcard_send_btn = services.inter_module.get_component("wildcard_send_btn")
+    wildcard_test_input = services.inter_module.get_component("wildcard_test_input")
+    wildcard_test_seed = services.inter_module.get_component("wildcard_test_seed")
+    zimage_prompt = services.inter_module.get_component("zimage_prompt")
+    zimage_seed = services.inter_module.get_component("zimage_seed")
+    zimage_randomize_seed = services.inter_module.get_component("zimage_randomize_seed")
+    
+    if all([wildcard_send_btn, wildcard_test_input, wildcard_test_seed, zimage_prompt, zimage_seed, zimage_randomize_seed]):
+        import gradio as gr
+        
+        def send_wildcard_to_zimage(prompt, seed):
+            if not prompt:
+                return gr.update(), gr.update(), gr.update(), gr.update()
+            # Return: prompt, seed, randomize=False, switch to zimage tab
+            return prompt, int(seed), False, gr.Tabs(selected="zimage")
+        
+        wildcard_send_btn.click(
+            fn=send_wildcard_to_zimage,
+            inputs=[wildcard_test_input, wildcard_test_seed],
+            outputs=[zimage_prompt, zimage_seed, zimage_randomize_seed, services.inter_module.main_tabs]
+        )
+        logger.info("Wired Wildcards -> Z-Image prompt transfer")
 
 
 def _wire_gallery_refresh(services: SharedServices, gallery_components: dict):
@@ -553,6 +613,9 @@ def _wire_gallery_refresh(services: SharedServices, gallery_components: dict):
 
 def main():
     """Main entry point - initialize services and launch the app."""
+    # Run startup migrations (e.g., copy custom nodes after first update)
+    ensure_custom_nodes_installed()
+    
     # Initialize ComfyKit
     kit = init_comfykit()
     if kit is None:

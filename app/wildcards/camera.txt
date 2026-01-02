@@ -1,0 +1,11 @@
+# Camera angles and shots
+close-up portrait
+full body shot
+medium shot
+low angle shot
+high angle shot
+dutch angle
+over the shoulder
+profile view
+three-quarter view
+extreme close-up on face

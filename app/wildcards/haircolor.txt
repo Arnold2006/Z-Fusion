@@ -1,0 +1,11 @@
+# Hair color
+blonde
+brunette
+black
+red
+auburn
+silver
+white
+platinum blonde
+strawberry blonde
+chestnut

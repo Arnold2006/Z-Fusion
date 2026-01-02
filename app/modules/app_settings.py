@@ -2,11 +2,12 @@
 App Settings Module
 
 Provides the application-wide settings tab with output directory,
-temp folder controls, and UI theme selection.
+temp folder controls, UI theme selection, and wildcards management.
 """
 
 import logging
 import os
+import random
 import shutil
 import subprocess
 import sys
@@ -15,6 +16,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import gradio as gr
+
+from modules.wildcard_processor import process_wildcards
 
 if TYPE_CHECKING:
     from modules import SharedServices
@@ -28,6 +31,41 @@ TAB_ORDER = 3
 
 # Gradio temp directory (uses GRADIO_TEMP_DIR env var if set, else system temp)
 GRADIO_TEMP_DIR = Path(os.environ.get("GRADIO_TEMP_DIR", tempfile.gettempdir()))
+
+# Wildcards directory (inside ComfyUI - where the node reads from)
+def get_wildcards_dir(services: "SharedServices") -> Path:
+    """Get the wildcards directory path (inside ComfyUI)."""
+    return services.app_dir / "comfyui" / "wildcards"
+
+
+def get_wildcard_files(wildcards_dir: Path) -> list[str]:
+    """Get list of wildcard .txt files."""
+    if not wildcards_dir.exists():
+        return []
+    return sorted([f.stem for f in wildcards_dir.glob("*.txt")])
+
+
+def read_wildcard_file(wildcards_dir: Path, name: str) -> str:
+    """Read contents of a wildcard file."""
+    filepath = wildcards_dir / f"{name}.txt"
+    if not filepath.exists():
+        return ""
+    return filepath.read_text(encoding="utf-8")
+
+
+def save_wildcard_file(wildcards_dir: Path, name: str, content: str) -> tuple[bool, str]:
+    """Save contents to a wildcard file."""
+    try:
+        wildcards_dir.mkdir(parents=True, exist_ok=True)
+        # Sanitize filename
+        safe_name = "".join(c for c in name if c.isalnum() or c in "-_").strip()
+        if not safe_name:
+            return False, "❌ Invalid filename"
+        filepath = wildcards_dir / f"{safe_name}.txt"
+        filepath.write_text(content, encoding="utf-8")
+        return True, f"✓ Saved {safe_name}.txt"
+    except Exception as e:
+        return False, f"❌ Failed to save: {e}"
 
 # Available themes
 BUILTIN_THEMES = ["Default", "Soft", "Monochrome", "Glass", "Base", "Ocean", "Origin", "Citrus"]
@@ -141,6 +179,71 @@ def create_tab(services: "SharedServices") -> gr.TabItem:
                     scale=1
                 )
                 gallery_settings_apply_btn = gr.Button("💾 Save", size="sm", scale=0)
+        
+        # === Wildcards Accordion ===
+        wildcards_dir = get_wildcards_dir(services)
+        with gr.Accordion("🎲 Wildcards", open=False):
+            gr.Markdown("""
+**Prompt Wildcards** — *Add variety to your prompts with random substitutions.*
+
+**Syntax:**
+- `__name__` → Replaced with random line from `wildcards/name.txt`
+- `{option1|option2|option3}` → Random inline selection
+
+**Example prompt:**
+```
+A __camera__ of a {man|woman} with __haircolor__ __hairstyle__ and __eyecolor__, wearing __outfit__, in a __location__, __lighting__, __mood__
+```
+""")
+            with gr.Row():
+                wildcard_file_dropdown = gr.Dropdown(
+                    choices=[""] + get_wildcard_files(wildcards_dir),
+                    value="",
+                    label="Edit Wildcard File",
+                    scale=2
+                )
+                wildcard_refresh_btn = gr.Button("🔄", size="sm", scale=0)
+                wildcard_open_folder_btn = gr.Button("📂 Open Folder", size="sm", scale=0)
+            
+            wildcard_editor = gr.Textbox(
+                label="Contents (one item per line, # for comments)",
+                lines=8,
+                placeholder="Select a file above to edit, or enter a new filename below to create one..."
+            )
+            
+            with gr.Row():
+                wildcard_new_name = gr.Textbox(
+                    label="New File Name",
+                    placeholder="e.g. emotion",
+                    scale=2
+                )
+                wildcard_save_btn = gr.Button("💾 Save", variant="primary", size="sm", scale=0)
+            
+            gr.Markdown("---")
+            gr.Markdown("**Prompt Tester** — *Preview how wildcards resolve*")
+            gr.Markdown("*The seed determines which wildcard options are selected. Same wildcard prompt + seed = same result.*", elem_classes=["info-text"])
+            with gr.Row():
+                wildcard_test_input = gr.Textbox(
+                    label="Test Prompt",
+                    placeholder="A __camera__ of a {man|woman} with __eyecolor__...",
+                    lines=2,
+                    scale=3
+                )
+                wildcard_test_seed = gr.Number(
+                    label="Seed",
+                    info="contains resolved prompt"
+                    value=random.randint(0, 999999999),
+                    minimum=0,
+                    scale=1
+                )
+            wildcard_test_output = gr.Textbox(
+                label="Resolved Prompt",
+                lines=2,
+                interactive=False
+            )
+            with gr.Row():
+                wildcard_test_btn = gr.Button("🎲 Test", variant="primary", size="sm")
+                wildcard_send_btn = gr.Button("📤 Send to Z-Image (unchecks 🎲 seed)", size="sm")
         
         # === Storage Accordion (Output Dir + Temp) ===
         with gr.Accordion("📁 Storage", open=False):
@@ -285,5 +388,76 @@ def create_tab(services: "SharedServices") -> gr.TabItem:
             fn=on_clear_temp_now,
             outputs=[app_settings_status]
         )
+        
+        # Wildcards handlers
+        def on_wildcard_file_select(filename):
+            if not filename:
+                return ""
+            return read_wildcard_file(wildcards_dir, filename)
+        
+        def on_wildcard_refresh():
+            files = [""] + get_wildcard_files(wildcards_dir)
+            return gr.update(choices=files, value="")
+        
+        def on_wildcard_open_folder():
+            wildcards_dir.mkdir(parents=True, exist_ok=True)
+            open_folder(wildcards_dir)
+        
+        def on_wildcard_save(selected_file, new_name, content):
+            # Use new_name if provided, otherwise use selected file
+            filename = new_name.strip() if new_name.strip() else selected_file
+            if not filename:
+                return "❌ Please select a file or enter a new filename", gr.update(), gr.update()
+            
+            success, msg = save_wildcard_file(wildcards_dir, filename, content)
+            
+            # Refresh dropdown and clear new name field on success
+            if success:
+                files = get_wildcard_files(wildcards_dir)
+                # Select the saved file
+                saved_name = "".join(c for c in filename if c.isalnum() or c in "-_").strip()
+                return msg, gr.update(choices=files, value=saved_name), ""
+            return msg, gr.update(), gr.update()
+        
+        wildcard_file_dropdown.change(
+            fn=on_wildcard_file_select,
+            inputs=[wildcard_file_dropdown],
+            outputs=[wildcard_editor]
+        )
+        
+        wildcard_refresh_btn.click(
+            fn=on_wildcard_refresh,
+            outputs=[wildcard_file_dropdown]
+        )
+        
+        wildcard_open_folder_btn.click(fn=on_wildcard_open_folder)
+        
+        wildcard_save_btn.click(
+            fn=on_wildcard_save,
+            inputs=[wildcard_file_dropdown, wildcard_new_name, wildcard_editor],
+            outputs=[app_settings_status, wildcard_file_dropdown, wildcard_new_name]
+        )
+        
+        # Prompt tester handlers
+        def on_wildcard_test(prompt):
+            if not prompt:
+                return "", 0
+            seed = random.randint(0, 999999999)
+            resolved = process_wildcards(prompt, seed, wildcards_dir)
+            return resolved, seed
+        
+        def on_wildcard_random_seed():
+            return random.randint(0, 999999999)
+        
+        wildcard_test_btn.click(
+            fn=on_wildcard_test,
+            inputs=[wildcard_test_input],
+            outputs=[wildcard_test_output, wildcard_test_seed]
+        )
+        
+        # Register components for cross-module wiring (handled in app.py)
+        services.inter_module.register_component("wildcard_test_input", wildcard_test_input)
+        services.inter_module.register_component("wildcard_test_seed", wildcard_test_seed)
+        services.inter_module.register_component("wildcard_send_btn", wildcard_send_btn)
     
     return tab
