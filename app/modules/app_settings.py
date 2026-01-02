@@ -231,7 +231,7 @@ A __camera__ of a {man|woman} with __haircolor__ __hairstyle__ and __eyecolor__,
                 )
                 wildcard_test_seed = gr.Number(
                     label="Seed",
-                    info="contains resolved prompt"
+                    info="contains resolved prompt",
                     value=random.randint(0, 999999999),
                     minimum=0,
                     scale=1
