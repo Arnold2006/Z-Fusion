@@ -786,7 +786,7 @@ class PromptAssistant:
             outputs=[remove_model_dd]
         )
         
-        open_cache_btn.click(fn=self._open_hf_cache_folder, outputs=[settings_status])
+        open_cache_btn.click(fn=self._open_hf_cache_folder, inputs=[], outputs=[settings_status])
 
         # Preset events - all output to single status
         # Enhancer: dropdown change loads content only (name field stays empty for new presets)

@@ -13,7 +13,7 @@ import sys
 import tempfile
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, List, Optional
 
 import gradio as gr
 import httpx
@@ -33,6 +33,12 @@ TAB_ORDER = 1
 # Session temp directory for results (auto-cleaned on exit)
 # Using a persistent TemporaryDirectory so files have nice names for Gradio download
 _results_temp_dir = tempfile.TemporaryDirectory(prefix="upscale_results_")
+
+# Batch processing cancellation flag
+_cancel_batch = False
+
+# Supported image extensions for batch processing
+IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif")
 
 # SeedVR2 Upscaler models (auto-download on demand by node)
 SEEDVR2_DIT_MODELS = [
@@ -196,11 +202,75 @@ def copy_to_temp_with_name(image_path: str, original_path: str, resolution: int)
     return str(temp_path)
 
 
+def get_images_from_folder(folder_path: str) -> List[str]:
+    """Get list of image files from a folder path."""
+    if not folder_path or not folder_path.strip():
+        return []
+    path = Path(folder_path.strip())
+    if not path.exists() or not path.is_dir():
+        return []
+    images = set()  # Use set to avoid duplicates (Windows glob is case-insensitive)
+    for ext in IMAGE_EXTENSIONS:
+        images.update(str(f) for f in path.glob(f"*{ext}"))
+        images.update(str(f) for f in path.glob(f"*{ext.upper()}"))
+    return sorted(images)
+
+
+def downscale_image_if_needed(image_path: str, max_resolution: int) -> str:
+    """Downscale image if it exceeds max_resolution. Returns path (original or temp scaled)."""
+    if max_resolution <= 0:
+        return image_path
+    
+    try:
+        img = Image.open(image_path)
+        width, height = img.size
+        
+        # Check if downscaling is needed (based on longest side)
+        longest_side = max(width, height)
+        if longest_side <= max_resolution:
+            return image_path
+        
+        # Calculate new dimensions maintaining aspect ratio
+        scale = max_resolution / longest_side
+        new_width = int(width * scale)
+        new_height = int(height * scale)
+        
+        logger.info(f"Downscaling input from {width}x{height} to {new_width}x{new_height}")
+        
+        # Resize with high quality
+        resized = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
+        
+        # Save to temp file as PNG (supports alpha)
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as f:
+            resized.save(f.name, format='PNG')
+            return f.name
+            
+    except Exception as e:
+        logger.warning(f"Failed to downscale image: {e}")
+        return image_path
+
+
+def get_batch_images(batch_files: Optional[List], folder_path: str) -> List[str]:
+    """Combine images from file upload and folder path."""
+    images = []
+    # From file upload
+    if batch_files:
+        for f in batch_files:
+            if hasattr(f, 'name'):
+                images.append(f.name)
+            elif isinstance(f, str):
+                images.append(f)
+    # From folder path
+    images.extend(get_images_from_folder(folder_path))
+    return images
+
+
 async def upscale_image(
     services: "SharedServices",
     input_image,
     seed: int,
     randomize_seed: bool,
+    max_input_resolution: int,
     resolution: int,
     max_resolution: int,
     dit_model: str,
@@ -229,6 +299,9 @@ async def upscale_image(
         if input_image is None:
             return None, "❌ Please upload an image to upscale", seed, None, None, None
         
+        # Downscale input if needed
+        processed_input = downscale_image_if_needed(input_image, max_input_resolution)
+        
         # SeedVR2 uses 32-bit seed max (4294967295)
         actual_seed = new_random_seed_32bit() if randomize_seed else min(int(seed), 4294967295)
         
@@ -239,7 +312,7 @@ async def upscale_image(
         logger.info(f"Upscaling image with SeedVR2: {dit_model}, res={resolution}, max={max_resolution}")
         
         params = {
-            "image": input_image,
+            "image": processed_input,
             "seed": actual_seed,
             "resolution": int(resolution),
             "max_resolution": int(max_resolution),
@@ -292,6 +365,129 @@ async def upscale_image(
         if "connect" in str(e).lower():
             return None, "❌ Cannot connect to ComfyUI", seed, None, None, None
         return None, f"❌ {str(e)}", seed, None, None, None
+
+
+async def upscale_image_batch(
+    services: "SharedServices",
+    batch_files: Optional[List],
+    folder_path: str,
+    seed: int,
+    randomize_seed: bool,
+    resolution: int,
+    max_resolution: int,
+    max_input_resolution: int,
+    dit_model: str,
+    blocks_to_swap: int,
+    attention_mode: str,
+    # VAE settings
+    encode_tiled: bool,
+    encode_tile_size: int,
+    encode_tile_overlap: int,
+    decode_tiled: bool,
+    decode_tile_size: int,
+    decode_tile_overlap: int,
+    # Upscaler settings
+    batch_size: int,
+    uniform_batch_size: bool,
+    color_correction: str,
+    temporal_overlap: int,
+    input_noise_scale: float,
+    latent_noise_scale: float,
+):
+    """Batch upscale images using SeedVR2. Auto-saves to timestamped folder. Yields (status, seed, output_folder)."""
+    global _cancel_batch
+    outputs_dir = services.get_outputs_dir()
+    
+    images = get_batch_images(batch_files, folder_path)
+    if not images:
+        yield "❌ No images found. Upload files or enter a folder path.", seed, None
+        return
+    
+    # Create timestamped output folder
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    batch_output_dir = outputs_dir / "upscaled" / f"batch_{timestamp}"
+    batch_output_dir.mkdir(parents=True, exist_ok=True)
+    
+    base_seed = new_random_seed_32bit() if randomize_seed else min(int(seed), 4294967295)
+    _cancel_batch = False
+    
+    workflow_path = services.workflows_dir / "SeedVR2_4K_image_upscale.json"
+    if not workflow_path.exists():
+        yield "❌ Upscale workflow not found", seed, None
+        return
+    
+    total = len(images)
+    success_count = 0
+    total_duration = 0.0
+    
+    for i, img_path in enumerate(images):
+        if _cancel_batch:
+            _cancel_batch = False
+            yield f"⏹️ Cancelled after {i}/{total} images | Saved to: {batch_output_dir}", base_seed, str(batch_output_dir)
+            return
+        
+        current_seed = base_seed + i
+        yield f"⏳ [{i+1}/{total}] Processing {Path(img_path).name}...", base_seed, str(batch_output_dir)
+        
+        try:
+            # Downscale input if needed
+            processed_img_path = downscale_image_if_needed(img_path, max_input_resolution)
+            
+            params = {
+                "image": processed_img_path,
+                "seed": current_seed,
+                "resolution": int(resolution),
+                "max_resolution": int(max_resolution),
+                "dit_model": dit_model,
+                "blocks_to_swap": int(blocks_to_swap),
+                "attention_mode": attention_mode,
+                "encode_tiled": encode_tiled,
+                "encode_tile_size": int(encode_tile_size),
+                "encode_tile_overlap": int(encode_tile_overlap),
+                "decode_tiled": decode_tiled,
+                "decode_tile_size": int(decode_tile_size),
+                "decode_tile_overlap": int(decode_tile_overlap),
+                "batch_size": int(batch_size),
+                "uniform_batch_size": uniform_batch_size,
+                "color_correction": color_correction,
+                "temporal_overlap": int(temporal_overlap),
+                "input_noise_scale": float(input_noise_scale),
+                "latent_noise_scale": float(latent_noise_scale),
+            }
+            
+            result = await services.kit.execute(str(workflow_path), params)
+            
+            if result.status == "error":
+                logger.warning(f"Batch item {i+1} failed: {result.msg}")
+                continue
+            
+            if not result.images:
+                logger.warning(f"Batch item {i+1}: No images generated")
+                continue
+            
+            image_path = result.images[0]
+            if image_path.startswith("http"):
+                image_path = await download_image_from_url(image_path)
+            
+            # Save to batch output folder with meaningful name
+            original_name = extract_meaningful_filename(img_path)
+            res_label = f"{resolution // 1000}K" if resolution >= 1000 else f"{resolution}p"
+            output_filename = f"{original_name}_{res_label}up.png"
+            output_path = batch_output_dir / output_filename
+            shutil.copy2(image_path, output_path)
+            
+            success_count += 1
+            if result.duration:
+                total_duration += result.duration
+                
+        except Exception as e:
+            logger.warning(f"Batch item {i+1} error: {e}")
+            continue
+    
+    avg_time = total_duration / success_count if success_count else 0
+    status = f"✓ {success_count}/{total} images | {total_duration:.1f}s total ({avg_time:.1f}s avg)"
+    status += f"\n📁 {batch_output_dir}"
+    yield status, base_seed, str(batch_output_dir)
 
 
 async def upscale_video(
@@ -697,13 +893,21 @@ def create_tab(services: "SharedServices") -> gr.TabItem:
                         upscale_input_image = gr.Image(label="Input Image", type="filepath", elem_classes="image-window")
                         input_image_analysis = gr.HTML(visible=False, elem_classes="analysis-panel")
                         with gr.Row():
+                            upscale_max_input_resolution = gr.Slider(
+                                label="Downscale Input",
+                                value=0,
+                                minimum=0,
+                                maximum=4096,
+                                step=64,
+                                info="To Max Side (0=off)"
+                            )
                             upscale_resolution = gr.Slider(
-                                label="Resolution",
+                                label="Upscaled Resolution",
                                 value=initial_preset.get("image_resolution", 3072),
                                 minimum=1024,
                                 maximum=4096,
                                 step=8,
-                                info="Target short-side resolution"
+                                info="Output short-side"
                             )
                             upscale_max_resolution = gr.Slider(
                                 label="Max Resolution",
@@ -711,9 +915,54 @@ def create_tab(services: "SharedServices") -> gr.TabItem:
                                 minimum=1024,
                                 maximum=7680,
                                 step=8,
-                                info="Maximum long-side resolution"
+                                info="Max long-side"
                             )
-                        upscale_btn = gr.Button("🔍 Upscale Image", variant="primary", size="sm")
+                        with gr.Row():
+                            upscale_btn = gr.Button("🔍 Upscale Image", variant="primary", size="sm", scale=3)
+                            upscale_stop_btn = gr.Button("⏹️ Stop", size="sm", variant="stop", scale=1)
+                    
+                    with gr.TabItem("🖼️ Batch", id="upscale_batch_tab"):
+                        batch_files = gr.File(
+                            label="Upload Images",
+                            file_count="multiple",
+                            file_types=["image"],
+                            type="filepath"
+                        )
+                        with gr.Group():
+                            batch_folder = gr.Textbox(
+                                label="Or Enter Folder Path",
+                                placeholder="C:\\path\\to\\images or /path/to/images",
+                                info="Process all images in a folder"
+                            )
+                            gr.HTML("<p style='font-size: 0.85em; margin: -8 -8 0 0; padding: 0 8px;'>📁 All outputs auto-saved to a timestamped folder in <code>outputs/upscaled/</code></p>")
+                        with gr.Row():
+                            batch_max_input_resolution = gr.Slider(
+                                label="Downscale Input",
+                                value=0,
+                                minimum=0,
+                                maximum=4096,
+                                step=64,
+                                info="To Max Side (0=off)"
+                            )
+                            batch_resolution = gr.Slider(
+                                label="Upscaled Resolution",
+                                value=initial_preset.get("image_resolution", 3072),
+                                minimum=1024,
+                                maximum=4096,
+                                step=8,
+                                info="Output short-side"
+                            )
+                            batch_max_resolution = gr.Slider(
+                                label="Max Resolution",
+                                value=initial_preset.get("image_max_resolution", 4096),
+                                minimum=1024,
+                                maximum=7680,
+                                step=8,
+                                info="Max long-side"
+                            )
+                        with gr.Row():
+                            batch_upscale_btn = gr.Button("🔍 Upscale Batch", variant="primary", size="sm", scale=3)
+                            batch_stop_btn = gr.Button("⏹️ Stop", size="sm", variant="stop", scale=1)
                     
                     with gr.TabItem("🎬 Video", id="upscale_video_tab"):
                         upscale_input_video = gr.Video(label="Input Video", elem_classes="video-window")
@@ -980,6 +1229,7 @@ def create_tab(services: "SharedServices") -> gr.TabItem:
                 upscale_original_path = gr.State(value=None)
                 upscale_result_resolution = gr.State(value=None)
                 upscale_video_result_path = gr.State(value=None)
+                batch_output_folder = gr.State(value=None)
                 
                 with gr.Accordion("ℹ️ Upscale Help", open=False):
                     gr.Markdown("""
@@ -1187,7 +1437,7 @@ def create_tab(services: "SharedServices") -> gr.TabItem:
         
         # Image Upscale - main function returns primary outputs (status goes to State, not Textbox)
         async def upscale_image_main(
-            input_image, seed, randomize_seed, resolution, max_resolution,
+            input_image, seed, randomize_seed, max_input_resolution, resolution, max_resolution,
             dit_model, blocks_to_swap, attention_mode,
             encode_tiled, encode_tile_size, encode_tile_overlap,
             decode_tiled, decode_tile_size, decode_tile_overlap,
@@ -1195,7 +1445,7 @@ def create_tab(services: "SharedServices") -> gr.TabItem:
             input_noise, latent_noise, autosave
         ):
             result = await upscale_image(
-                services, input_image, seed, randomize_seed, resolution, max_resolution,
+                services, input_image, seed, randomize_seed, max_input_resolution, resolution, max_resolution,
                 dit_model, blocks_to_swap, attention_mode,
                 encode_tiled, encode_tile_size, encode_tile_overlap,
                 decode_tiled, decode_tile_size, decode_tile_overlap,
@@ -1220,6 +1470,7 @@ def create_tab(services: "SharedServices") -> gr.TabItem:
                 upscale_input_image,
                 upscale_seed,
                 upscale_randomize_seed,
+                upscale_max_input_resolution,
                 upscale_resolution,
                 upscale_max_resolution,
             ] + upscale_common_inputs,
@@ -1228,6 +1479,69 @@ def create_tab(services: "SharedServices") -> gr.TabItem:
             fn=upscale_image_finalize,
             inputs=[upscale_pending_status, upscale_result_path],
             outputs=[upscale_status, output_image_analysis]
+        )
+        
+        # Stop button for single image (interrupts ComfyUI)
+        async def stop_upscale():
+            global _cancel_batch
+            _cancel_batch = True
+            try:
+                async with httpx.AsyncClient() as client:
+                    await client.post(f"{services.kit.comfyui_url}/interrupt")
+                return "⏹️ Stopping..."
+            except Exception as e:
+                return f"⏹️ Stop requested ({e})"
+        
+        upscale_stop_btn.click(fn=stop_upscale, outputs=[upscale_status])
+        batch_stop_btn.click(fn=stop_upscale, outputs=[upscale_status])
+        
+        # Batch upscale inputs (same settings as single, but uses batch resolution sliders)
+        batch_common_inputs = [
+            upscale_dit_model,
+            upscale_blocks_to_swap,
+            upscale_attention_mode,
+            upscale_encode_tiled,
+            upscale_encode_tile_size,
+            upscale_encode_tile_overlap,
+            upscale_decode_tiled,
+            upscale_decode_tile_size,
+            upscale_decode_tile_overlap,
+            upscale_batch_size,
+            upscale_uniform_batch,
+            upscale_color_correction,
+            upscale_temporal_overlap,
+            upscale_input_noise,
+            upscale_latent_noise,
+        ]
+        
+        # Batch upscale handler
+        async def run_batch_upscale(
+            files, folder, seed_val, randomize, resolution, max_resolution, max_input_resolution,
+            dit_model, blocks_to_swap, attention_mode,
+            encode_tiled, encode_tile_size, encode_tile_overlap,
+            decode_tiled, decode_tile_size, decode_tile_overlap,
+            batch_size, uniform_batch, color_correction, temporal_overlap,
+            input_noise, latent_noise
+        ):
+            async for result in upscale_image_batch(
+                services, files, folder, seed_val, randomize, resolution, max_resolution, max_input_resolution,
+                dit_model, blocks_to_swap, attention_mode,
+                encode_tiled, encode_tile_size, encode_tile_overlap,
+                decode_tiled, decode_tile_size, decode_tile_overlap,
+                batch_size, uniform_batch, color_correction, temporal_overlap,
+                input_noise, latent_noise
+            ):
+                status_msg, actual_seed, output_folder = result
+                yield status_msg, actual_seed, output_folder
+        
+        batch_upscale_btn.click(
+            fn=run_batch_upscale,
+            inputs=[
+                batch_files, batch_folder,
+                upscale_seed, upscale_randomize_seed,
+                batch_resolution, batch_max_resolution, batch_max_input_resolution,
+            ] + batch_common_inputs,
+            outputs=[upscale_status, upscale_seed, batch_output_folder]
         )
         
         # Video export inputs (before common inputs)
