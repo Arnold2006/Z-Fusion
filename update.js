@@ -25,7 +25,7 @@ module.exports = {
     },
 
     // Copy/update our custom node (always overwrite - it's code)
-    {
+/*     {
       method: "fs.copy",
       params: {
         src: "app/custom_nodes/z-image-wildcards",
@@ -40,7 +40,7 @@ module.exports = {
         src: "app/wildcards",
         dest: "app/comfyui/wildcards"
       }
-    },
+    }, */
 
     {
       method: "shell.run",
