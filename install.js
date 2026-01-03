@@ -16,7 +16,7 @@ module.exports = {
     },
 
     // Copy our custom node into ComfyUI
-    {
+/*     {
       method: "fs.copy",
       params: {
         src: "app/custom_nodes/z-image-wildcards",
@@ -31,7 +31,7 @@ module.exports = {
         src: "app/wildcards",
         dest: "app/comfyui/wildcards"
       }
-    },
+    }, */
 
     {
       method: "shell.run",
