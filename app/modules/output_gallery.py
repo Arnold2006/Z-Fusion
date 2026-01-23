@@ -147,10 +147,14 @@ def create_output_gallery(services: "SharedServices") -> dict:
                 return filename, f"{idx}|{original_path}"
         return "", ""
     
-    def delete_selected(selected_info_str, image_paths):
+    def delete_selected(selected_info_str=None, image_paths=None):
         """Delete the selected image file from outputs directory."""
-        if not selected_info_str or "|" not in selected_info_str:
-            return gr.update(), "❌ No image selected", gr.update(), "", gr.update()
+        # Handle missing inputs gracefully (can happen during timer updates)
+        if image_paths is None:
+            image_paths = []
+        
+        if not selected_info_str or "|" not in str(selected_info_str):
+            return gr.update(), gr.update(), gr.update(), "", gr.update()
         
         # Parse the selection info
         try:

@@ -798,26 +798,9 @@ def create_tab(services: "SharedServices") -> gr.TabItem:
                     stop_btn = gr.Button("⏹️ Stop Generation", size="sm", variant="stop")
                     unload_btn = gr.Button("🗑️ Unload Comfyui Models", size="sm")
                 
-                # System monitor
-                with gr.Row():
-                    with gr.Column(scale=1, min_width=200):                            
-                        gpu_monitor = gr.Textbox(
-                            value="Loading...",
-                            lines=4.5,
-                            container=False,
-                            interactive=False,
-                            show_label=False,
-                            elem_classes="monitor-box gpu-monitor"
-                        )
-                    with gr.Column(scale=1, min_width=200):
-                        cpu_monitor = gr.Textbox(
-                            value="Loading...",
-                            lines=4,
-                            container=False,
-                            interactive=False,
-                            show_label=False,
-                            elem_classes="monitor-box cpu-monitor"
-                        )  
+                # System monitor (UI only - timer is shared in app.py)
+                from modules.system_monitor_ui import create_monitor_textboxes
+                gpu_monitor, cpu_monitor = create_monitor_textboxes()
                 
                 # Image metadata reader
                 with gr.Accordion("🔍 Read Image Metadata", open=False):
@@ -925,8 +908,6 @@ Distilled "turbo" models can produce similar images across different seeds, espe
             stop_btn=stop_btn,
             unload_btn=unload_btn,
             gen_status=gen_status,
-            gpu_monitor=gpu_monitor,
-            cpu_monitor=cpu_monitor,
             # Metadata reader
             meta_image=meta_image,
             meta_output=meta_output,
@@ -939,6 +920,11 @@ Distilled "turbo" models can produce similar images across different seeds, espe
             samplers=samplers,
             schedulers=schedulers,
         )
+    
+    # Register monitor components for shared timer in app.py
+    # (must be done here in create_tab where gpu_monitor/cpu_monitor are in scope)
+    services.inter_module.register_component("zimage_gpu_monitor", gpu_monitor)
+    services.inter_module.register_component("zimage_cpu_monitor", cpu_monitor)
     
     return tab
 
@@ -997,8 +983,6 @@ def _setup_event_handlers(
     stop_btn = components["stop_btn"]
     unload_btn = components["unload_btn"]
     gen_status = components["gen_status"]
-    gpu_monitor = components["gpu_monitor"]
-    cpu_monitor = components["cpu_monitor"]
     meta_image = components["meta_image"]
     meta_output = components["meta_output"]
     meta_to_prompt_btn = components["meta_to_prompt_btn"]
@@ -1339,16 +1323,6 @@ def _setup_event_handlers(
         open_folder(services.get_outputs_dir())
     
     open_folder_btn.click(fn=open_outputs_folder, outputs=[])
-    
-    # System Monitor 
-    def update_monitor():
-        if services.system_monitor:
-            gpu_info, cpu_info = services.system_monitor.get_system_info()
-            return gpu_info, cpu_info
-        return "N/A", "N/A"
-        
-    monitor_timer = gr.Timer(2, active=True)
-    monitor_timer.tick(fn=update_monitor, outputs=[gpu_monitor, cpu_monitor])
     
     # Camera prompts - open in browser
     def open_camera_prompts():
