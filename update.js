@@ -24,23 +24,23 @@ module.exports = {
       }
     },
 
-    // Copy/update our custom node (always overwrite - it's code)
-/*     {
+    // Ensure custom node files are in place (fs.copy broken for dirs)
+    {
+      when: "{{!exists('app/comfyui/custom_nodes/z-image-wildcards/__init__.py')}}",
       method: "fs.copy",
       params: {
-        src: "app/custom_nodes/z-image-wildcards",
-        dest: "app/comfyui/custom_nodes/z-image-wildcards"
+        src: "app/custom_nodes/z-image-wildcards/__init__.py",
+        dest: "app/comfyui/custom_nodes/z-image-wildcards/__init__.py"
       }
     },
-    // Copy starter wildcards folder only if it doesn't exist yet
     {
-      when: "{{!exists('app/comfyui/wildcards')}}",
+      when: "{{!exists('app/comfyui/custom_nodes/z-image-wildcards/wildcards_node.py')}}",
       method: "fs.copy",
       params: {
-        src: "app/wildcards",
-        dest: "app/comfyui/wildcards"
+        src: "app/custom_nodes/z-image-wildcards/wildcards_node.py",
+        dest: "app/comfyui/custom_nodes/z-image-wildcards/wildcards_node.py"
       }
-    }, */
+    },
 
     {
       method: "shell.run",
