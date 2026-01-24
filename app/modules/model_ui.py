@@ -69,6 +69,9 @@ class BaseModelType:
     # Whether this type supports GGUF mode
     supports_gguf: bool = True
     
+    # Whether this type supports edit workflows
+    supports_edit: bool = False
+    
     # Description shown in UI
     description: str = ""
 
@@ -96,11 +99,12 @@ BASE_MODEL_TYPES = {
         default_diffusion="flux-2-klein-4b-fp8.safetensors",
         default_te="qwen_3_4b.safetensors",
         default_vae="flux2-vae.safetensors",
-        default_diffusion_gguf="flux2-klein-4b-Q4_K_M.gguf",
+        default_diffusion_gguf="flux-2-klein-4b-Q4_K_M.gguf",
         default_te_gguf="Qwen3-4B-Q4_K_M.gguf",
         download_keys_standard=["flux2_klein_4b_diffusion", "zimage_te_bf16", "flux2_vae"],
         download_keys_gguf=["flux2_klein_4b_diffusion_gguf", "zimage_te_gguf", "flux2_vae"],
         supports_gguf=True,
+        supports_edit=True,
         description="Flux2 Klein 4B (uses 4B Qwen TE)"
     ),
     "flux2_klein_9b": BaseModelType(
@@ -110,11 +114,12 @@ BASE_MODEL_TYPES = {
         default_diffusion="flux-2-klein-9b-fp8.safetensors",
         default_te="qwen_3_8b.safetensors",
         default_vae="flux2-vae.safetensors",
-        default_diffusion_gguf="flux2-klein-9b-Q4_K_M.gguf",
+        default_diffusion_gguf="flux-2-klein-9b-Q4_K_M.gguf",
         default_te_gguf="Qwen3-8B-Q4_K_M.gguf",
         download_keys_standard=["flux2_klein_9b_diffusion", "flux2_te_8b_bf16", "flux2_vae"],
         download_keys_gguf=["flux2_klein_9b_diffusion_gguf", "flux2_te_8b_gguf", "flux2_vae"],
         supports_gguf=True,
+        supports_edit=True,
         description="Flux2 Klein 9B (uses 8B Qwen TE)"
     ),
 }
@@ -165,6 +170,12 @@ class UserPreset:
         """Get clip_type from base model type."""
         base = BASE_MODEL_TYPES.get(self.base_type, BASE_MODEL_TYPES["zimage"])
         return base.clip_type
+    
+    @property
+    def supports_edit(self) -> bool:
+        """Check if this preset's base type supports edit workflows."""
+        base = BASE_MODEL_TYPES.get(self.base_type, BASE_MODEL_TYPES["zimage"])
+        return base.supports_edit
 
 
 def create_default_presets() -> list[UserPreset]:
@@ -218,6 +229,14 @@ def load_user_presets(settings_manager) -> tuple[list[UserPreset], str]:
     if not presets:
         presets = create_default_presets()
         active_id = presets[0].id if presets else ""
+    else:
+        # Ensure all default presets exist (in case new base types were added)
+        default_presets = create_default_presets()
+        existing_default_ids = {p.id for p in presets if p.id.startswith("default_")}
+        for dp in default_presets:
+            if dp.id not in existing_default_ids:
+                presets.append(dp)
+                logger.info(f"Added missing default preset: {dp.name}")
     
     # Validate active_id exists
     if active_id and not any(p.id == active_id for p in presets):
@@ -330,14 +349,14 @@ MODEL_DOWNLOADS = {
     },
     # Qwen3 8B TE (for Flux2 Klein 9B)
     "flux2_te_8b_bf16": {
-        "repo_id": "Qwen/Qwen3-8B",
-        "filename": "model.safetensors",
-        "local_name": "qwen_3_8b.safetensors",
+        "repo_id": "Comfy-Org/vae-text-encorder-for-flux-klein-9b/text_encoders",
+        "filename": "qwen_3_8b_fp8mixed.safetensors",
+        "local_name": "qwen_3_8b_fp8mixed.safetensors",
         "folder_key": "text_encoder",
-        "label": "Qwen3 8B TE (bf16)",
+        "label": "Qwen3 8B TE (fp8mixed)",
     },
     "flux2_te_8b_gguf": {
-        "repo_id": "Qwen/Qwen3-8B-GGUF",
+        "repo_id": "unsloth/Qwen3-8B-GGUF",
         "filename": "Qwen3-8B-Q4_K_M.gguf",
         "local_name": "Qwen3-8B-Q4_K_M.gguf",
         "folder_key": "text_encoder",
@@ -526,16 +545,41 @@ class ModelComponents:
     # Hidden states
     clip_type_state: gr.State
     presets_state: gr.State  # Stores list of UserPreset dicts
+    
+    # Configuration flags
+    edit_only: bool = False  # Whether to filter for edit-compatible presets only
 
 
-def get_base_type_choices() -> list:
+def get_base_type_choices(edit_only: bool = False) -> list:
     """Get base type choices for dropdown."""
-    return [(BASE_MODEL_TYPES[bid].label, bid) for bid in BASE_TYPE_ORDER]
+    choices = []
+    for bid in BASE_TYPE_ORDER:
+        base = BASE_MODEL_TYPES[bid]
+        if edit_only and not base.supports_edit:
+            continue
+        choices.append((base.label, bid))
+    return choices
 
 
-def get_preset_dropdown_choices(presets: list[UserPreset]) -> list:
-    """Get preset choices for quick selector dropdown."""
-    return [(p.name, p.id) for p in presets]
+def get_preset_dropdown_choices(presets: list[UserPreset], edit_only: bool = False, include_manual: bool = True) -> list:
+    """Get preset choices for quick selector dropdown.
+    
+    Args:
+        presets: List of user presets
+        edit_only: If True, only include presets that support edit workflows
+        include_manual: If True, add a "Manual" option at the top that uses current model selections
+    """
+    choices = []
+    
+    # Add manual option first (uses whatever is currently selected in dropdowns)
+    if include_manual:
+        choices.append(("— Manual —", ""))
+    
+    for p in presets:
+        if edit_only and not p.supports_edit:
+            continue
+        choices.append((p.name, p.id))
+    return choices
 
 
 # =============================================================================
@@ -545,24 +589,49 @@ def get_preset_dropdown_choices(presets: list[UserPreset]) -> list:
 def create_quick_preset_selector(
     settings_manager=None,
     label: str = "Model Preset",
+    edit_only: bool = False,
+    default_to_manual: bool = False,
 ) -> tuple[gr.Dropdown, gr.State, gr.State]:
     """
     Create a quick preset selector dropdown for the main UI.
+    
+    Args:
+        settings_manager: Settings manager for loading presets
+        label: Label for the dropdown
+        edit_only: If True, only show presets that support edit workflows
+        default_to_manual: If True, default to "Manual" mode instead of active preset
     
     Returns:
         Tuple of (dropdown, clip_type_state, presets_state)
     """
     presets, active_id = load_user_presets(settings_manager)
+    
+    # Filter presets if edit_only
+    if edit_only:
+        filtered_presets = [p for p in presets if p.supports_edit]
+        # If active preset doesn't support edit, select first that does
+        if not any(p.id == active_id for p in filtered_presets):
+            active_id = filtered_presets[0].id if filtered_presets else ""
+    else:
+        filtered_presets = presets
+    
+    # Default to manual mode if requested
+    if default_to_manual:
+        active_id = ""
+    
     active_preset = get_preset_by_id(presets, active_id)
+    
+    # For manual mode or edit_only, default clip_type to flux2
+    default_clip_type = "flux2" if (not active_preset or edit_only) else active_preset.clip_type
     
     quick_preset = gr.Dropdown(
         label=label,
-        choices=get_preset_dropdown_choices(presets),
+        choices=get_preset_dropdown_choices(presets, edit_only),
         value=active_id,
         scale=1,
     )
     
-    clip_type_state = gr.State(value=active_preset.clip_type if active_preset else "lumina2")
+    clip_type_state = gr.State(value=active_preset.clip_type if active_preset else default_clip_type)
     presets_state = gr.State(value=[p.to_dict() for p in presets])
     
     return quick_preset, clip_type_state, presets_state
@@ -580,6 +649,7 @@ def create_model_ui(
     quick_preset_dropdown: gr.Dropdown = None,
     clip_type_state: gr.State = None,
     presets_state: gr.State = None,
+    edit_only: bool = False,
 ) -> ModelComponents:
     """
     Create the model configuration accordion UI.
@@ -592,6 +662,7 @@ def create_model_ui(
         quick_preset_dropdown: External quick preset dropdown to sync with
         clip_type_state: External clip_type state to sync with
         presets_state: External presets state to sync with
+        edit_only: If True, only show base types that support edit workflows
         
     Returns:
         ModelComponents dataclass with all UI components
@@ -608,9 +679,28 @@ def create_model_ui(
         active_preset = presets[0]
         active_id = active_preset.id
     
+    # For edit_only mode, ensure we have an edit-compatible preset selected
+    if edit_only and active_preset and not active_preset.supports_edit:
+        # Find first edit-compatible preset
+        for p in presets:
+            if p.supports_edit:
+                active_preset = p
+                active_id = p.id
+                break
+    
     # Get initial model lists
     is_gguf = active_preset.use_gguf if active_preset else False
-    base_type = active_preset.base_type if active_preset else "zimage"
+    base_type = active_preset.base_type if active_preset else "flux2_klein_4b"
+    
+    # Ensure base_type is valid for edit_only mode
+    if edit_only:
+        base = BASE_MODEL_TYPES.get(base_type)
+        if not base or not base.supports_edit:
+            # Default to first edit-compatible base type
+            for bid in BASE_TYPE_ORDER:
+                if BASE_MODEL_TYPES[bid].supports_edit:
+                    base_type = bid
+                    break
     
     diff_models = get_models_by_mode(diffusion_dir, is_gguf) or [""]
     te_models = get_models_by_mode(text_encoders_dir, is_gguf) or [""]
@@ -626,8 +716,8 @@ def create_model_ui(
         if quick_preset_dropdown is None:
             quick_preset = gr.Dropdown(
                 label="Active Preset",
-                choices=get_preset_dropdown_choices(presets),
-                value=active_id,
+                choices=get_preset_dropdown_choices(presets, edit_only),
+                value="",  # Default to Manual mode
             )
         else:
             quick_preset = quick_preset_dropdown
@@ -638,7 +728,7 @@ def create_model_ui(
         with gr.Row():
             base_type_dropdown = gr.Dropdown(
                 label="Base Model Type",
-                choices=get_base_type_choices(),
+                choices=get_base_type_choices(edit_only=edit_only),
                 value=base_type,
                 scale=2,
                 info="Determines workflow compatibility"
@@ -756,6 +846,7 @@ def create_model_ui(
         open_vae_btn=open_vae_btn,
         clip_type_state=clip_type_state,
         presets_state=presets_state,
+        edit_only=edit_only,
     )
 
 
@@ -767,6 +858,7 @@ def setup_model_handlers(
     model_components: ModelComponents,
     models_dir: Path,
     settings_manager=None,
+    edit_only: bool = None,
 ):
     """
     Wire up event handlers for model UI components.
@@ -775,7 +867,13 @@ def setup_model_handlers(
         model_components: ModelComponents from create_model_ui
         models_dir: Path to ComfyUI models directory
         settings_manager: Settings manager for saving presets
+        edit_only: If True, filter presets/base types for edit compatibility.
+                   If None, uses the value from model_components.edit_only
     """
+    # Use edit_only from model_components if not explicitly provided
+    if edit_only is None:
+        edit_only = model_components.edit_only
+    
     diffusion_dir = models_dir / "diffusion_models"
     text_encoders_dir = models_dir / "text_encoders"
     vae_dir = models_dir / "vae"
@@ -800,8 +898,24 @@ def setup_model_handlers(
     # =========================================================================
     # Quick Preset Selection - Updates models for inference (not the editor name)
     # =========================================================================
-    def on_quick_preset_change(preset_id: str, presets_data: list):
-        """When user selects a preset, load its models for inference."""
+    def on_quick_preset_change(preset_id: str, presets_data: list, current_base_type: str):
+        """When user selects a preset, load its models for inference.
+        
+        If preset_id is empty ("Manual" mode), keep current model selections.
+        """
+        # Manual mode - keep current selections, just update clip_type from base_type
+        if not preset_id:
+            base = BASE_MODEL_TYPES.get(current_base_type, BASE_MODEL_TYPES["zimage"])
+            return (
+                gr.update(),  # base_type - keep current
+                gr.update(),  # use_gguf - keep current
+                gr.update(),  # unet_name - keep current
+                gr.update(),  # clip_name - keep current
+                gr.update(),  # vae_name - keep current
+                base.clip_type,  # clip_type from current base_type
+                gr.update(),  # download_btn - keep current
+            )
+        
         presets = [UserPreset.from_dict(p) for p in presets_data]
         preset = get_preset_by_id(presets, preset_id)
         
@@ -842,7 +956,7 @@ def setup_model_handlers(
     
     mc.quick_preset.change(
         fn=on_quick_preset_change,
-        inputs=[mc.quick_preset, mc.presets_state],
+        inputs=[mc.quick_preset, mc.presets_state, mc.base_type_dropdown],
         outputs=[
             mc.base_type_dropdown,
             mc.use_gguf,
@@ -968,8 +1082,8 @@ def setup_model_handlers(
         if settings_manager:
             save_user_presets(settings_manager, presets, new_preset.id)
         
-        # Update dropdown choices and select new preset
-        choices = get_preset_dropdown_choices(presets)
+        # Update dropdown choices and select new preset (filtered by edit_only)
+        choices = get_preset_dropdown_choices(presets, edit_only)
         
         return (
             new_presets_data,
@@ -1039,8 +1153,13 @@ def setup_model_handlers(
         deleted_name = preset_to_delete.name
         presets = [p for p in presets if p.id != preset_id]
         
-        # Select the first remaining preset
-        new_active = presets[0]
+        # Select the first remaining preset (respecting edit_only filter)
+        if edit_only:
+            compatible_presets = [p for p in presets if p.supports_edit]
+            new_active = compatible_presets[0] if compatible_presets else presets[0]
+        else:
+            new_active = presets[0]
+        
         new_presets_data = [p.to_dict() for p in presets]
         
         if settings_manager:
@@ -1051,7 +1170,7 @@ def setup_model_handlers(
         te_models = get_models_by_mode(text_encoders_dir, new_active.use_gguf) or [""]
         vae_models = scan_models(vae_dir, STANDARD_EXTENSIONS) or [""]
         
-        choices = get_preset_dropdown_choices(presets)
+        choices = get_preset_dropdown_choices(presets, edit_only)
         
         return (
             new_presets_data,
