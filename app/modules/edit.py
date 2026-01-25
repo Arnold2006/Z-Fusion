@@ -136,18 +136,22 @@ def get_workflow_file(num_inputs: int, use_gguf: bool) -> str:
 PROMPT_LIBRARY_FILE = "edit_prompts.json"
 
 DEFAULT_PROMPTS = {
-    "Style Transfer": "Transform the image to match the artistic style while preserving the subject",
-    "Realistic Enhancement": "Make the image more photorealistic with natural lighting and textures",
-    "Anime/Illustration": "Convert to anime or illustrated style while keeping the composition",
-    "Oil Painting": "Transform into an oil painting with visible brushstrokes and rich colors",
-    "Watercolor": "Convert to a soft watercolor painting style",
-    "Sketch": "Transform into a pencil sketch or line drawing",
-    "Cinematic": "Apply cinematic color grading and dramatic lighting",
-    "Vintage/Retro": "Apply a vintage or retro aesthetic with muted colors",
-    "Fantasy": "Transform into a fantasy art style with magical elements",
-    "Cyberpunk": "Apply cyberpunk aesthetic with neon colors and futuristic elements",
-}
 
+  "Cyberpunk Overhaul": "Reskin this image into a cyberpunk aesthetic. Bathe the scene in vibrant pink and cyan neon light reflecting off wet surfaces. Add atmospheric haze and flickering holographic details while maintaining the original composition.",
+  "Classic Oil Painting": "Transform this image into a masterpiece oil painting. Use thick, visible impasto brushstrokes and painted using the images existing color palette. The lighting should mimic a Rembrandt painting, with a single light source creating a dramatic chiaroscuro effect.",
+  "Ethereal Watercolor": "Convert the image into a delicate watercolor illustration.",
+  "Vintage 35mm Film": "Apply a nostalgic 1970s film aesthetic. Introduce subtle film grain, slightly muted colors with a warm tint, and a gentle lens flare. The image should look like a candid moment captured on Kodak Portra 400.",
+  "Studio Portrait": "Transform the subject to match a professional studio look. Use a clean, neutral background and 'Rembrandt' lighting.",
+  "Fantasy Illustration": "Reimagine this scene as a high-fantasy digital art. Add magical atmospheric element. Use dramatic, epic lighting.",
+  "Pencil Sketch": "Convert the image into a detailed graphite pencil drawing on textured paper. Focus on fine cross-hatching for shadows and clean, confident line work for the silhouettes, maintaining a hand-drawn, artistic feel.",
+  "Golden Hour Glow": "Bathe the entire scene in the warm, golden hour glow of a late afternoon. Add long, soft shadows and a backlight that creates a beautiful rim-light around the edges of the subject.",
+  "Anime Aesthetic": "Convert the image into a high-quality anime style. Use clean line art, vibrant cel-shaded colors, and expressive lighting. The background should have the detailed, painterly quality found in modern Japanese animation.",
+  "Style Blend (Img1 + Img2)": "Change image 1 to match the artistic style, color palette, and atmospheric mood of image 2. Maintain the exact subject and composition of image 1 while adopting the textures of image 2.",
+  "Character into Scene (Img1 <- Img2)": "Take the subject from image 2 and place them naturally into the setting of image 1. Adjust the lighting on the subject so it perfectly matches the environment of image 1.",
+  "Triple Fusion (Img1 + Img2 + Img3)": "Combine these elements: use the subject from image 1 and place them into the environment and setting from image 2, and apply the specific artistic style and lighting found in image 3.",
+  "Photographic Translation": "Reskin this entire image into a raw, high-resolution photograph. Convert all stylized surfaces into their real-world material counterparts with organic textures, high-fidelity details, and natural light-wrap. Maintain the exact composition and elements, but render them with the optical clarity and color science of a professional full-frame camera sensor.",
+  "Optical Realism": "Render this scene as if captured through a high-quality 35mm lens. Apply realistic optical characteristics: a natural depth of field, and authentic light physics. Transform the current art style into a grounded, photographic reality without adding any new elements to the composition.",  
+}
 
 def get_prompt_library_path(app_dir: Path) -> Path:
     return app_dir / "modules" / PROMPT_LIBRARY_FILE
@@ -353,8 +357,8 @@ def create_tab(services: "SharedServices") -> gr.TabItem:
                     # --- 2-Input Tab ---
                     with gr.TabItem("📷📷 2 Images", id="edit_2"):
                         with gr.Row():
-                            image1_2 = gr.Image(label="Image 1 (Primary)", type="filepath", height=280)
-                            image2_2 = gr.Image(label="Image 2 (Reference)", type="filepath", height=280)
+                            image1_2 = gr.Image(label="Image 1 (Primary)", type="filepath", height=280, elem_classes="image-window")
+                            image2_2 = gr.Image(label="Image 2 (Reference)", type="filepath", height=280, elem_classes="image-window")
                         prompt_2 = gr.Textbox(
                             label="Edit Instruction",
                             placeholder="e.g., Change image 1 to match the style of image 2...",
@@ -373,9 +377,9 @@ def create_tab(services: "SharedServices") -> gr.TabItem:
                     # --- 3-Input Tab ---
                     with gr.TabItem("📷📷📷 3 Images", id="edit_3"):
                         with gr.Row():
-                            image1_3 = gr.Image(label="Image 1 (Primary)", type="filepath", height=240)
-                            image2_3 = gr.Image(label="Image 2 (Ref A)", type="filepath", height=240)
-                            image3_3 = gr.Image(label="Image 3 (Ref B)", type="filepath", height=240)
+                            image1_3 = gr.Image(label="Image 1 (Primary)", type="filepath", height=240, elem_classes="image-window")
+                            image2_3 = gr.Image(label="Image 2 (Ref A)", type="filepath", height=240, elem_classes="image-window")
+                            image3_3 = gr.Image(label="Image 3 (Ref B)", type="filepath", height=240, elem_classes="image-window")
                         prompt_3 = gr.Textbox(
                             label="Edit Instruction",
                             placeholder="e.g., Combine style from image 2 with background from image 3...",
@@ -401,7 +405,7 @@ def create_tab(services: "SharedServices") -> gr.TabItem:
                         sampler = gr.Dropdown(label="Sampler", choices=samplers, value="euler")
                     with gr.Row():
                         seed = gr.Number(label="Seed", value=new_random_seed(), minimum=0, step=1, scale=2)
-                        randomize_seed = gr.Checkbox(label="🎲", value=True, scale=0, min_width=50)
+                        randomize_seed = gr.Checkbox(label="🎲", value=True, scale=0, min_width=80)
                     negative = gr.Textbox(label="Negative Prompt", value="", lines=1)
                 
                 # Quick model preset selector (outside accordion for easy access)
@@ -430,12 +434,14 @@ def create_tab(services: "SharedServices") -> gr.TabItem:
             
             # ===== RIGHT COLUMN =====
             with gr.Column(scale=1):
-                output_slider = gr.ImageSlider(
-                    label="Before / After",
-                    type="filepath",
-                    elem_classes="image-window",
-                    show_download_button=True
-                )
+                with gr.TabItem("Before / After"):                
+                    output_slider = gr.ImageSlider(
+                        label="Before / After",
+                        type="filepath",
+                        elem_classes="image-window",
+                        show_download_button=True,
+                        show_label=False
+                    )
                 with gr.Row():
                     save_btn = gr.Button("💾 Save", size="sm", variant="primary")
                     send_btn = gr.Button("🔍 Send to SeedVR2", size="sm", variant="huggingface")

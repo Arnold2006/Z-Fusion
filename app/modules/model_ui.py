@@ -20,6 +20,7 @@ import shutil
 import subprocess
 import sys
 import uuid
+import webbrowser
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional, Callable
@@ -65,6 +66,7 @@ class BaseModelType:
     # Download configuration (list of MODEL_DOWNLOADS keys)
     download_keys_standard: list = field(default_factory=list)
     download_keys_gguf: list = field(default_factory=list)
+    download_keys_gguf_bf16: list = field(default_factory=list)  # BF16 GGUF alternative (for Klein 9B)
     
     # Whether this type supports GGUF mode
     supports_gguf: bool = True
@@ -112,12 +114,13 @@ BASE_MODEL_TYPES = {
         label="Flux2 Klein 9B",
         clip_type="flux2",
         default_diffusion="flux-2-klein-9b-fp8.safetensors",
-        default_te="qwen_3_8b.safetensors",
+        default_te="qwen_3_8b_fp8mixed.safetensors",
         default_vae="flux2-vae.safetensors",
         default_diffusion_gguf="flux-2-klein-9b-Q4_K_M.gguf",
         default_te_gguf="Qwen3-8B-Q4_K_M.gguf",
         download_keys_standard=["flux2_klein_9b_diffusion", "flux2_te_8b_bf16", "flux2_vae"],
         download_keys_gguf=["flux2_klein_9b_diffusion_gguf", "flux2_te_8b_gguf", "flux2_vae"],
+        download_keys_gguf_bf16=["flux2_klein_9b_diffusion_gguf_bf16", "flux2_te_8b_gguf_bf16", "flux2_vae"],
         supports_gguf=True,
         supports_edit=True,
         description="Flux2 Klein 9B (uses 8B Qwen TE)"
@@ -278,6 +281,7 @@ MODEL_DOWNLOADS = {
         "local_name": "z_image_turbo_bf16.safetensors",
         "folder_key": "diffusion",
         "label": "Z-Image Diffusion (bf16)",
+        "size_gb": 12,
     },
     "zimage_te_bf16": {
         "repo_id": "Comfy-Org/z_image_turbo",
@@ -285,6 +289,7 @@ MODEL_DOWNLOADS = {
         "local_name": "qwen_3_4b.safetensors",
         "folder_key": "text_encoder",
         "label": "Qwen3 4B TE (bf16)",
+        "size_gb": 8,
     },
     "zimage_vae": {
         "repo_id": "Comfy-Org/z_image_turbo",
@@ -292,6 +297,7 @@ MODEL_DOWNLOADS = {
         "local_name": "ae.safetensors",
         "folder_key": "vae",
         "label": "Z-Image VAE",
+        "size_gb": 0.3,
     },
     # Z-Image GGUF
     "zimage_diffusion_gguf": {
@@ -299,14 +305,16 @@ MODEL_DOWNLOADS = {
         "filename": "z-image-turbo-q4_k_m.gguf",
         "local_name": "z-image-turbo-q4_k_m.gguf",
         "folder_key": "diffusion",
-        "label": "Z-Image Diffusion (Q4 GGUF)",
+        "label": "Z-Image Diffusion (Q4)",
+        "size_gb": 4.5,
     },
     "zimage_te_gguf": {
         "repo_id": "Qwen/Qwen3-4B-GGUF",
         "filename": "Qwen3-4B-Q4_K_M.gguf",
         "local_name": "Qwen3-4B-Q4_K_M.gguf",
         "folder_key": "text_encoder",
-        "label": "Qwen3 4B TE (Q4 GGUF)",
+        "label": "Qwen3 4B TE (Q4)",
+        "size_gb": 2.5,
     },
     # Flux2 VAE (shared by all Flux2 presets)
     "flux2_vae": {
@@ -315,54 +323,152 @@ MODEL_DOWNLOADS = {
         "local_name": "flux2-vae.safetensors",
         "folder_key": "vae",
         "label": "Flux2 VAE",
+        "size_gb": 0.3,
     },
-    # Flux2 Klein 4B
+    # Flux2 Klein 4B Standard
     "flux2_klein_4b_diffusion": {
         "repo_id": "black-forest-labs/FLUX.2-klein-4B",
         "filename": "flux-2-klein-4b-fp8.safetensors",
         "local_name": "flux-2-klein-4b-fp8.safetensors",
         "folder_key": "diffusion",
-        "label": "Flux2 Klein 4B (fp8)",
+        "label": "Klein 4B (fp8)",
+        "size_gb": 4,
     },
-    # Flux2 Klein 9B  
+    # Flux2 Klein 9B Standard (GATED!)
     "flux2_klein_9b_diffusion": {
         "repo_id": "black-forest-labs/FLUX.2-klein-9B",
         "filename": "flux-2-klein-9b-fp8.safetensors",
         "local_name": "flux-2-klein-9b-fp8.safetensors",
         "folder_key": "diffusion",
-        "label": "Flux2 Klein 9B (fp8)",
+        "label": "Klein 9B (fp8)",
+        "size_gb": 9,
+        "is_gated": True,
+        "gated_url": "https://huggingface.co/black-forest-labs/FLUX.2-klein-9b-fp8/tree/main",
     },
-    # Flux2 Klein GGUF variants
+    # Flux2 Klein 4B GGUF Q4
     "flux2_klein_4b_diffusion_gguf": {
         "repo_id": "unsloth/FLUX.2-klein-4B-GGUF",
         "filename": "flux-2-klein-4b-Q4_K_M.gguf",
         "local_name": "flux-2-klein-4b-Q4_K_M.gguf",
         "folder_key": "diffusion",
-        "label": "Flux2 Klein 4B (Q4 GGUF)",
+        "label": "Klein 4B (Q4)",
+        "size_gb": 2.5,
     },
+    # Flux2 Klein 9B GGUF Q4
     "flux2_klein_9b_diffusion_gguf": {
         "repo_id": "unsloth/FLUX.2-klein-9B-GGUF",
         "filename": "flux-2-klein-9b-Q4_K_M.gguf",
         "local_name": "flux-2-klein-9b-Q4_K_M.gguf",
         "folder_key": "diffusion",
-        "label": "Flux2 Klein 9B (Q4 GGUF)",
+        "label": "Klein 9B (Q4)",
+        "size_gb": 6,
     },
-    # Qwen3 8B TE (for Flux2 Klein 9B)
+    # Flux2 Klein 9B GGUF BF16 (full precision, ungated alternative)
+    "flux2_klein_9b_diffusion_gguf_bf16": {
+        "repo_id": "unsloth/FLUX.2-klein-9B-GGUF",
+        "filename": "flux-2-klein-9b-BF16.gguf",
+        "local_name": "flux-2-klein-9b-BF16.gguf",
+        "folder_key": "diffusion",
+        "label": "Klein 9B (BF16 GGUF)",
+        "size_gb": 18,
+    },
+    # Qwen3 8B TE Standard (for Flux2 Klein 9B)
     "flux2_te_8b_bf16": {
-        "repo_id": "Comfy-Org/vae-text-encorder-for-flux-klein-9b/text_encoders",
-        "filename": "qwen_3_8b_fp8mixed.safetensors",
+        "repo_id": "Comfy-Org/vae-text-encorder-for-flux-klein-9b",
+        "filename": "text_encoders/qwen_3_8b_fp8mixed.safetensors",
         "local_name": "qwen_3_8b_fp8mixed.safetensors",
         "folder_key": "text_encoder",
-        "label": "Qwen3 8B TE (fp8mixed)",
+        "label": "Qwen3 8B TE (fp8)",
+        "size_gb": 8,
     },
+    # Qwen3 8B TE GGUF Q4
     "flux2_te_8b_gguf": {
         "repo_id": "unsloth/Qwen3-8B-GGUF",
         "filename": "Qwen3-8B-Q4_K_M.gguf",
         "local_name": "Qwen3-8B-Q4_K_M.gguf",
         "folder_key": "text_encoder",
-        "label": "Qwen3 8B TE (Q4 GGUF)",
+        "label": "Qwen3 8B TE (Q4)",
+        "size_gb": 5,
+    },
+    # Qwen3 8B TE GGUF BF16 (full precision)
+    "flux2_te_8b_gguf_bf16": {
+        "repo_id": "unsloth/Qwen3-8B-GGUF",
+        "filename": "Qwen3-8B-BF16.gguf",
+        "local_name": "Qwen3-8B-BF16.gguf",
+        "folder_key": "text_encoder",
+        "label": "Qwen3 8B TE (BF16 GGUF)",
+        "size_gb": 16,
     },
 }
+
+
+# =============================================================================
+# DOWNLOAD HELPERS
+# =============================================================================
+
+def get_download_size(keys: list) -> float:
+    """Calculate total download size in GB for a list of download keys."""
+    total = 0.0
+    for key in keys:
+        info = MODEL_DOWNLOADS.get(key, {})
+        total += info.get("size_gb", 0)
+    return total
+
+
+def has_gated_model(keys: list) -> tuple[bool, str | None]:
+    """Check if any model in the list is gated. Returns (is_gated, gated_url)."""
+    for key in keys:
+        info = MODEL_DOWNLOADS.get(key, {})
+        if info.get("is_gated", False):
+            return True, info.get("gated_url")
+    return False, None
+
+
+def get_download_button_label(base_type_id: str, is_gguf: bool, include_size: bool = True) -> str:
+    """Generate download button label with model name, mode, and size."""
+    base = BASE_MODEL_TYPES.get(base_type_id, BASE_MODEL_TYPES["zimage"])
+    keys = base.download_keys_gguf if is_gguf else base.download_keys_standard
+    
+    # Check if gated
+    is_gated, _ = has_gated_model(keys)
+    if is_gated:
+        return f"⚠️ {base.label} (Gated - Manual Download)"
+    
+    # Build label
+    mode_suffix = " Q4" if is_gguf else ""
+    size = get_download_size(keys)
+    
+    if include_size:
+        return f"⬇️ Download {base.label}{mode_suffix} ({size:.0f}GB)"
+    return f"⬇️ Download {base.label}{mode_suffix}"
+
+
+def get_individual_button_labels(base_type_id: str, is_gguf: bool) -> tuple[str, str, str]:
+    """Get labels for individual download buttons (diffusion, TE, VAE)."""
+    base = BASE_MODEL_TYPES.get(base_type_id, BASE_MODEL_TYPES["zimage"])
+    keys = base.download_keys_gguf if is_gguf else base.download_keys_standard
+    
+    diff_label = "⬇️ Diffusion"
+    te_label = "⬇️ Text Encoder"
+    vae_label = "⬇️ VAE"
+    
+    for key in keys:
+        info = MODEL_DOWNLOADS.get(key, {})
+        folder = info.get("folder_key")
+        size = info.get("size_gb", 0)
+        is_gated = info.get("is_gated", False)
+        
+        if folder == "diffusion":
+            if is_gated:
+                diff_label = f"🔗 Diffusion (Gated)"
+            else:
+                diff_label = f"⬇️ Diffusion ({size:.1f}GB)" if size < 10 else f"⬇️ Diffusion ({size:.0f}GB)"
+        elif folder == "text_encoder":
+            te_label = f"⬇️ TE ({size:.1f}GB)" if size < 10 else f"⬇️ TE ({size:.0f}GB)"
+        elif folder == "vae":
+            vae_label = f"⬇️ VAE ({size:.1f}GB)"
+    
+    return diff_label, te_label, vae_label
 
 
 # =============================================================================
@@ -535,6 +641,7 @@ class ModelComponents:
     
     # Download section
     download_btn: gr.Button
+    download_bf16_btn: gr.Button  # BF16 GGUF alternative (for Klein 9B)
     dl_diffusion_btn: gr.Button
     dl_te_btn: gr.Button
     dl_vae_btn: gr.Button
@@ -573,7 +680,7 @@ def get_preset_dropdown_choices(presets: list[UserPreset], edit_only: bool = Fal
     
     # Add manual option first (uses whatever is currently selected in dropdowns)
     if include_manual:
-        choices.append(("— Manual —", ""))
+        choices.append(("— Manual [Selected in Model section below] —", ""))
     
     for p in presets:
         if edit_only and not p.supports_edit:
@@ -761,8 +868,6 @@ def create_model_ui(
             allow_custom_value=True
         )
         
-        gr.Markdown("---")
-        
         # Preset management - Save creates NEW presets, Delete removes selected preset
         gr.Markdown("---")
         gr.Markdown("**Save New Preset**")
@@ -771,7 +876,9 @@ def create_model_ui(
                 label="New Preset Name",
                 value="",
                 placeholder="Enter name for new preset...",
-                scale=2
+                scale=2,
+                show_label=False,
+                container=False
             )
             save_preset_btn = gr.Button("💾 Save as New", size="sm", variant="primary", scale=1)
         
@@ -785,31 +892,58 @@ def create_model_ui(
             interactive=False,
             show_label=False,
             lines=1,
-            value=""
+            value="",
+            container=False
         )
         
         # Download section
+        # Get initial button labels
+        main_btn_label = get_download_button_label(base_type, is_gguf)
+        diff_label, te_label, vae_label = get_individual_button_labels(base_type, is_gguf)
+        
+        # Check if BF16 GGUF option should be shown (Klein 9B + GGUF mode)
+        base_config = BASE_MODEL_TYPES.get(base_type, BASE_MODEL_TYPES["zimage"])
+        show_bf16_btn = is_gguf and base_config.download_keys_gguf_bf16
+        bf16_size = get_download_size(base_config.download_keys_gguf_bf16) if show_bf16_btn else 0
+        
         with gr.Accordion("📦 Download Models", open=needs_setup):
             download_btn = gr.Button(
-                f"⬇️ Download {BASE_MODEL_TYPES.get(base_type, BASE_MODEL_TYPES['zimage']).label} Models",
+                main_btn_label,
                 variant="primary",
                 size="sm"
             )
             
+            # BF16 GGUF button (only for Klein 9B in GGUF mode)
+            download_bf16_btn = gr.Button(
+                f"⬇️ Download BF16 GGUF ({bf16_size:.0f}GB)" if show_bf16_btn else "⬇️ BF16 GGUF",
+                variant="secondary",
+                size="sm",
+                visible=show_bf16_btn
+            )
+            
+            # Klein 9B info note
+            klein_9b_note = gr.Markdown(
+                "*ℹ️ Klein 9B Standard is gated. Use GGUF mode, or [manually download](https://huggingface.co/black-forest-labs/FLUX.2-klein-9b-fp8/tree/main). "
+                "For GGUF, Q8_0 (10GB) offers a quality/size balance.*",
+                visible=(base_type == "flux2_klein_9b")
+            )
+            
             gr.Markdown("*Or download individually:*")
             with gr.Row():
-                dl_diffusion_btn = gr.Button("⬇️ Diffusion", size="sm")
-                dl_te_btn = gr.Button("⬇️ Text Encoder", size="sm")
-                dl_vae_btn = gr.Button("⬇️ VAE", size="sm")
+                dl_diffusion_btn = gr.Button(diff_label, size="sm")
+                dl_te_btn = gr.Button(te_label, size="sm")
+                dl_vae_btn = gr.Button(vae_label, size="sm")
             
             gr.Markdown("---")
-            gr.Markdown("*Browse repos for other quants:*")
+            gr.Markdown("*Browse repos for other quants. The appropriate model folder buttons also below:*")
             with gr.Row():
                 gr.Button("🔗 Z-Image GGUF", size="sm", link="https://huggingface.co/gguf-org/z-image-gguf/tree/main")
-                gr.Button("🔗 Qwen3 GGUF", size="sm", link="https://huggingface.co/Qwen/Qwen3-4B-GGUF/tree/main")
+                gr.Button("🔗 Qwen3 4B GGUF", size="sm", link="https://huggingface.co/Qwen/Qwen3-4B-GGUF/tree/main")
+
             with gr.Row():
-                gr.Button("🔗 Flux2 Klein 4B GGUF", size="sm", link="https://huggingface.co/unsloth/FLUX.2-klein-4B-GGUF/tree/main")
-                gr.Button("🔗 Flux2 Klein 9B GGUF", size="sm", link="https://huggingface.co/unsloth/FLUX.2-klein-9B-GGUF/tree/main")
+                gr.Button("🔗 Klein 4B GGUF", size="sm", link="https://huggingface.co/unsloth/FLUX.2-klein-4B-GGUF/tree/main")
+                gr.Button("🔗 Klein 9B GGUF", size="sm", link="https://huggingface.co/unsloth/FLUX.2-klein-9B-GGUF/tree/main")
+                gr.Button("🔗 Qwen3 8B GGUF", size="sm", link="https://huggingface.co/unsloth/Qwen3-8B-GGUF/tree/main")
             
             gr.Markdown("---")
             with gr.Row():
@@ -823,8 +957,13 @@ def create_model_ui(
         if presets_state is None:
             presets_state = gr.State(value=[p.to_dict() for p in presets])
     
-    # Store reference for download button updates
+    # Store references for dynamic updates
     base_type_dropdown._download_btn = download_btn
+    base_type_dropdown._download_bf16_btn = download_bf16_btn
+    base_type_dropdown._klein_9b_note = klein_9b_note
+    base_type_dropdown._dl_diffusion_btn = dl_diffusion_btn
+    base_type_dropdown._dl_te_btn = dl_te_btn
+    base_type_dropdown._dl_vae_btn = dl_vae_btn
     
     return ModelComponents(
         quick_preset=quick_preset,
@@ -838,6 +977,7 @@ def create_model_ui(
         delete_preset_btn=delete_preset_btn,
         status_text=status_text,
         download_btn=download_btn,
+        download_bf16_btn=download_bf16_btn,
         dl_diffusion_btn=dl_diffusion_btn,
         dl_te_btn=dl_te_btn,
         dl_vae_btn=dl_vae_btn,
@@ -914,6 +1054,11 @@ def setup_model_handlers(
                 gr.update(),  # vae_name - keep current
                 base.clip_type,  # clip_type from current base_type
                 gr.update(),  # download_btn - keep current
+                gr.update(),  # download_bf16_btn - keep current
+                gr.update(),  # klein_9b_note - keep current
+                gr.update(),  # dl_diffusion_btn - keep current
+                gr.update(),  # dl_te_btn - keep current
+                gr.update(),  # dl_vae_btn - keep current
             )
         
         presets = [UserPreset.from_dict(p) for p in presets_data]
@@ -928,6 +1073,11 @@ def setup_model_handlers(
                 gr.update(),  # vae_name
                 "lumina2",    # clip_type
                 gr.update(),  # download_btn
+                gr.update(),  # download_bf16_btn
+                gr.update(),  # klein_9b_note
+                gr.update(),  # dl_diffusion_btn
+                gr.update(),  # dl_te_btn
+                gr.update(),  # dl_vae_btn
             )
         
         # Save active preset to settings
@@ -939,9 +1089,18 @@ def setup_model_handlers(
         te_models = get_models_by_mode(text_encoders_dir, preset.use_gguf) or [""]
         vae_models = scan_models(vae_dir, STANDARD_EXTENSIONS) or [""]
         
-        # Get base type for download button label
+        # Get download button labels
         base = BASE_MODEL_TYPES.get(preset.base_type, BASE_MODEL_TYPES["zimage"])
-        download_label = f"⬇️ Download {base.label} Models"
+        main_btn_label = get_download_button_label(preset.base_type, preset.use_gguf)
+        diff_label, te_label, vae_label = get_individual_button_labels(preset.base_type, preset.use_gguf)
+        
+        # BF16 GGUF button visibility
+        show_bf16 = preset.use_gguf and base.download_keys_gguf_bf16
+        bf16_size = get_download_size(base.download_keys_gguf_bf16) if show_bf16 else 0
+        bf16_label = f"⬇️ Download BF16 GGUF ({bf16_size:.0f}GB)" if show_bf16 else "⬇️ BF16 GGUF"
+        
+        # Klein 9B note visibility
+        show_note = (preset.base_type == "flux2_klein_9b")
         
         # Update editor to show this preset's config (but NOT the name field)
         return (
@@ -951,7 +1110,12 @@ def setup_model_handlers(
             gr.update(choices=te_models, value=get_default_model(te_models, preset.text_encoder)),
             gr.update(choices=vae_models, value=get_default_model(vae_models, preset.vae)),
             preset.clip_type,
-            gr.update(value=download_label),
+            gr.update(value=main_btn_label),
+            gr.update(value=bf16_label, visible=show_bf16),
+            gr.update(visible=show_note),
+            gr.update(value=diff_label),
+            gr.update(value=te_label),
+            gr.update(value=vae_label),
         )
     
     mc.quick_preset.change(
@@ -965,6 +1129,11 @@ def setup_model_handlers(
             mc.vae_name,
             mc.clip_type_state,
             mc.download_btn,
+            mc.download_bf16_btn,
+            mc.base_type_dropdown._klein_9b_note,
+            mc.dl_diffusion_btn,
+            mc.dl_te_btn,
+            mc.dl_vae_btn,
         ]
     )
     
@@ -989,14 +1158,29 @@ def setup_model_handlers(
         te_models = get_models_by_mode(text_encoders_dir, is_gguf) or [""]
         vae_models = scan_models(vae_dir, STANDARD_EXTENSIONS) or [""]
         
-        download_label = f"⬇️ Download {base.label} Models"
+        # Update download button labels
+        main_btn_label = get_download_button_label(base_type_id, is_gguf)
+        diff_label, te_label, vae_label = get_individual_button_labels(base_type_id, is_gguf)
+        
+        # BF16 GGUF button visibility (only for Klein 9B in GGUF mode)
+        show_bf16 = is_gguf and base.download_keys_gguf_bf16
+        bf16_size = get_download_size(base.download_keys_gguf_bf16) if show_bf16 else 0
+        bf16_label = f"⬇️ Download BF16 GGUF ({bf16_size:.0f}GB)" if show_bf16 else "⬇️ BF16 GGUF"
+        
+        # Klein 9B note visibility
+        show_note = (base_type_id == "flux2_klein_9b")
         
         return (
             gr.update(choices=diff_models, value=get_default_model(diff_models, diff_default)),
             gr.update(choices=te_models, value=get_default_model(te_models, te_default)),
             gr.update(choices=vae_models, value=get_default_model(vae_models, vae_default)),
             base.clip_type,
-            gr.update(value=download_label),
+            gr.update(value=main_btn_label),
+            gr.update(value=bf16_label, visible=show_bf16),
+            gr.update(visible=show_note),
+            gr.update(value=diff_label),
+            gr.update(value=te_label),
+            gr.update(value=vae_label),
         )
     
     mc.base_type_dropdown.change(
@@ -1008,11 +1192,16 @@ def setup_model_handlers(
             mc.vae_name,
             mc.clip_type_state,
             mc.base_type_dropdown._download_btn,
+            mc.base_type_dropdown._download_bf16_btn,
+            mc.base_type_dropdown._klein_9b_note,
+            mc.base_type_dropdown._dl_diffusion_btn,
+            mc.base_type_dropdown._dl_te_btn,
+            mc.base_type_dropdown._dl_vae_btn,
         ]
     )
     
     # =========================================================================
-    # Mode Change - Refresh model lists
+    # Mode Change - Refresh model lists and download buttons
     # =========================================================================
     def on_mode_change(base_type_id: str, is_gguf: bool):
         """When GGUF mode changes, refresh model lists with appropriate extensions."""
@@ -1030,16 +1219,39 @@ def setup_model_handlers(
         te_models = get_models_by_mode(text_encoders_dir, is_gguf) or [""]
         vae_models = scan_models(vae_dir, STANDARD_EXTENSIONS) or [""]
         
+        # Update download button labels
+        main_btn_label = get_download_button_label(base_type_id, is_gguf)
+        diff_label, te_label, vae_label = get_individual_button_labels(base_type_id, is_gguf)
+        
+        # BF16 GGUF button visibility (only for Klein 9B in GGUF mode)
+        show_bf16 = is_gguf and base.download_keys_gguf_bf16
+        bf16_size = get_download_size(base.download_keys_gguf_bf16) if show_bf16 else 0
+        bf16_label = f"⬇️ Download BF16 GGUF ({bf16_size:.0f}GB)" if show_bf16 else "⬇️ BF16 GGUF"
+        
         return (
             gr.update(choices=diff_models, value=get_default_model(diff_models, diff_default)),
             gr.update(choices=te_models, value=get_default_model(te_models, te_default)),
             gr.update(choices=vae_models, value=get_default_model(vae_models, vae_default)),
+            gr.update(value=main_btn_label),
+            gr.update(value=bf16_label, visible=show_bf16),
+            gr.update(value=diff_label),
+            gr.update(value=te_label),
+            gr.update(value=vae_label),
         )
     
     mc.use_gguf.change(
         fn=on_mode_change,
         inputs=[mc.base_type_dropdown, mc.use_gguf],
-        outputs=[mc.unet_name, mc.clip_name, mc.vae_name]
+        outputs=[
+            mc.unet_name,
+            mc.clip_name,
+            mc.vae_name,
+            mc.download_btn,
+            mc.download_bf16_btn,
+            mc.dl_diffusion_btn,
+            mc.dl_te_btn,
+            mc.dl_vae_btn,
+        ]
     )
     
     # =========================================================================
@@ -1205,6 +1417,19 @@ def setup_model_handlers(
     # =========================================================================
     def on_download_all(base_type_id: str, is_gguf: bool, progress=gr.Progress()):
         """Download all models for the current base type."""
+        base = BASE_MODEL_TYPES.get(base_type_id, BASE_MODEL_TYPES["zimage"])
+        keys = base.download_keys_gguf if is_gguf else base.download_keys_standard
+        
+        # Check for gated models
+        is_gated, gated_url = has_gated_model(keys)
+        if is_gated:
+            return (
+                f"⚠️ {base.label} Standard contains gated models. Use GGUF mode or manually download from HuggingFace.",
+                gr.update(),
+                gr.update(),
+                gr.update(),
+            )
+        
         result = download_base_type_models(base_type_id, is_gguf, models_dir, progress)
         
         # Refresh dropdowns
@@ -1212,7 +1437,6 @@ def setup_model_handlers(
         te_models = get_models_by_mode(text_encoders_dir, is_gguf) or [""]
         vae_models = scan_models(vae_dir, STANDARD_EXTENSIONS) or [""]
         
-        base = BASE_MODEL_TYPES.get(base_type_id, BASE_MODEL_TYPES["zimage"])
         if is_gguf:
             diff_default = base.default_diffusion_gguf
             te_default = base.default_te_gguf
@@ -1233,6 +1457,47 @@ def setup_model_handlers(
         outputs=[mc.status_text, mc.unet_name, mc.clip_name, mc.vae_name]
     )
     
+    def on_download_bf16(base_type_id: str, progress=gr.Progress()):
+        """Download BF16 GGUF models (full precision alternative for Klein 9B)."""
+        base = BASE_MODEL_TYPES.get(base_type_id, BASE_MODEL_TYPES["zimage"])
+        keys = base.download_keys_gguf_bf16
+        
+        if not keys:
+            return (
+                f"❌ No BF16 GGUF option for {base.label}",
+                gr.update(),
+                gr.update(),
+                gr.update(),
+            )
+        
+        results = []
+        for i, key in enumerate(keys):
+            if progress:
+                progress(i / len(keys), desc=f"Downloading {MODEL_DOWNLOADS.get(key, {}).get('label', key)}...")
+            result = download_model(key, models_dir, progress)
+            results.append(result)
+        
+        if progress:
+            progress(1, desc="Done")
+        
+        # Refresh dropdowns (BF16 GGUF files still have .gguf extension)
+        diff_models = get_models_by_mode(diffusion_dir, True) or [""]
+        te_models = get_models_by_mode(text_encoders_dir, True) or [""]
+        vae_models = scan_models(vae_dir, STANDARD_EXTENSIONS) or [""]
+        
+        return (
+            "\n".join(results),
+            gr.update(choices=diff_models),
+            gr.update(choices=te_models),
+            gr.update(choices=vae_models),
+        )
+    
+    mc.download_bf16_btn.click(
+        fn=on_download_bf16,
+        inputs=[mc.base_type_dropdown],
+        outputs=[mc.status_text, mc.unet_name, mc.clip_name, mc.vae_name]
+    )
+    
     def download_single(base_type_id: str, is_gguf: bool, model_type: str, progress=gr.Progress()):
         """Download a single model component."""
         base = BASE_MODEL_TYPES.get(base_type_id, BASE_MODEL_TYPES["zimage"])
@@ -1243,6 +1508,16 @@ def setup_model_handlers(
             info = MODEL_DOWNLOADS.get(key, {})
             if model_type == "diffusion" and info.get("folder_key") == "diffusion":
                 key_to_download = key
+                # Check if gated - open URL instead
+                if info.get("is_gated"):
+                    gated_url = info.get("gated_url", f"https://huggingface.co/{info.get('repo_id')}")
+                    webbrowser.open(gated_url)
+                    return (
+                        f"🔗 Opening HuggingFace page for gated model. Download manually and place in diffusion_models folder.",
+                        gr.update(),
+                        gr.update(),
+                        gr.update(),
+                    )
                 break
             elif model_type == "te" and info.get("folder_key") == "text_encoder":
                 key_to_download = key
