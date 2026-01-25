@@ -715,12 +715,9 @@ def create_tab(services: "SharedServices") -> gr.TabItem:
                         
                         status = gr.Textbox(label="Status", interactive=False, show_label=False, lines=1)
                         
-                        # System monitor
-                        with gr.Row():
-                            with gr.Column(scale=1, min_width=200):
-                                gpu_monitor = gr.Textbox(value="Loading...", lines=4.5, container=False, interactive=False, show_label=False, elem_classes="monitor-box gpu-monitor")
-                            with gr.Column(scale=1, min_width=200):
-                                cpu_monitor = gr.Textbox(value="Loading...", lines=4, container=False, interactive=False, show_label=False, elem_classes="monitor-box cpu-monitor")
+                        # System monitor (UI only - timer is shared in app.py)
+                        from modules.system_monitor_ui import create_monitor_textboxes
+                        gpu_monitor, cpu_monitor = create_monitor_textboxes()
                         
                         # Hidden states (separate for single vs batch to avoid cross-contamination)
                         single_result_state = gr.State(value=None)
@@ -882,6 +879,10 @@ def create_tab(services: "SharedServices") -> gr.TabItem:
         services.inter_module.register_component("experimental_single_result", single_result_state)
         services.inter_module.register_component("experimental_status", status)
         
+        # Register monitor components for shared timer in app.py
+        services.inter_module.register_component("experimental_gpu_monitor", gpu_monitor)
+        services.inter_module.register_component("experimental_cpu_monitor", cpu_monitor)
+        
         # Register as an image receiver for inter-module transfers (from output gallery etc.)
         services.inter_module.image_transfer.register_receiver(
             tab_id=TAB_ID,
@@ -895,13 +896,5 @@ def create_tab(services: "SharedServices") -> gr.TabItem:
             fn=services.inter_module.image_transfer.create_tab_select_handler(TAB_ID),
             outputs=[input_image, status]
         )
-        
-        # System Monitor
-        def update_monitor():
-            if services.system_monitor:
-                return services.system_monitor.get_system_info()
-            return "N/A", "N/A"
-        monitor_timer = gr.Timer(2, active=True)
-        monitor_timer.tick(fn=update_monitor, outputs=[gpu_monitor, cpu_monitor])
     
     return tab

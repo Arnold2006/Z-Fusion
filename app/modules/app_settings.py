@@ -430,7 +430,7 @@ A __camera__ of a {man|woman} with __haircolor__ __hairstyle__ and __eyecolor__,
             outputs=[wildcard_file_dropdown]
         )
         
-        wildcard_open_folder_btn.click(fn=on_wildcard_open_folder)
+        wildcard_open_folder_btn.click(fn=on_wildcard_open_folder, outputs=[])
         
         wildcard_save_btn.click(
             fn=on_wildcard_save,

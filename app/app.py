@@ -24,6 +24,7 @@ from comfykit import ComfyKit
 from modules import SharedServices, SettingsManager, discover_modules
 from modules.prompt_assistant import PromptAssistant
 from modules.system_monitor import SystemMonitor
+from modules.system_monitor_ui import setup_shared_monitor_timer
 from modules.output_gallery import create_output_gallery
 
 # Configure logging
@@ -63,10 +64,7 @@ GRADIO_TEMP_DIR = Path(os.environ.get("GRADIO_TEMP_DIR", tempfile.gettempdir()))
 def ensure_custom_nodes_installed():
     """
     Ensure custom nodes are copied into ComfyUI.
-    
-    This handles the case where a user updates from a version before wildcards
-    and our localized custom_nodes were added — the first update pulls the new files but the old update.js
-    doesn't have the fs.copy steps yet.
+
     """
     # Custom node
     src_node = APP_DIR / "custom_nodes" / "z-image-wildcards"
@@ -386,6 +384,10 @@ def create_interface(services: SharedServices, theme: Any = None) -> gr.Blocks:
         # Wire up gallery refresh after save operations from tabs
         _wire_gallery_refresh(services, output_gallery_components)
         
+        # Setup shared system monitor timer (single timer updates all tab monitors)
+        setup_shared_monitor_timer(services)
+        logger.info("Created shared system monitor timer")
+        
         # Hide gallery on settings tabs (llm_settings, app_settings)
         settings_tabs = {"llm_settings", "app_settings"}
         gallery_accordion = output_gallery_components["accordion"]
@@ -395,8 +397,8 @@ def create_interface(services: SharedServices, theme: Any = None) -> gr.Blocks:
             selected_tab = evt.value if hasattr(evt, 'value') else None
             # evt.value contains the tab label, but we need tab_id
             # Check if any settings tab label is selected
-            hide_gallery = any(s in str(selected_tab).lower() for s in ["settings", "llm"])
-            return gr.update(visible=not hide_gallery)
+            hide = any(s in str(selected_tab).lower() for s in ["settings", "llm"])
+            return gr.update(visible=not hide)
         
         main_tabs.select(
             fn=on_tab_change,
@@ -549,7 +551,10 @@ def _wire_gallery_refresh(services: SharedServices, gallery_components: dict):
     # Wire "Send to Upscale" button
     upscale_receiver = image_transfer.get_receiver("upscale")
     if upscale_receiver and main_tabs:
-        def send_to_upscale(info_str):
+        def send_to_upscale(info_str=None):
+            # Handle missing input gracefully (can happen during timer updates)
+            if not info_str:
+                return gr.update(), gr.update(), gr.update(), gr.update()
             img_path = get_selected_path(info_str)
             if not img_path:
                 return "❌ No image selected", gr.update(), gr.update(), gr.update()
@@ -577,7 +582,10 @@ def _wire_gallery_refresh(services: SharedServices, gallery_components: dict):
     # Wire "Send to Experimental" button
     exp_receiver = image_transfer.get_receiver("experimental")
     if exp_receiver and main_tabs:
-        def send_to_experimental(info_str):
+        def send_to_experimental(info_str=None):
+            # Handle missing input gracefully (can happen during timer updates)
+            if not info_str:
+                return gr.update(), gr.update(), gr.update(), gr.update()
             img_path = get_selected_path(info_str)
             if not img_path:
                 return "❌ No image selected", gr.update(), gr.update(), gr.update()

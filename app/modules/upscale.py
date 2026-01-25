@@ -1203,26 +1203,9 @@ def create_tab(services: "SharedServices") -> gr.TabItem:
                 upscale_status = gr.Textbox(label="Status", interactive=False, show_label=False, lines=2)
                 upscale_open_folder_btn = gr.Button("📂 Open Output Folder", size="sm")
 
-                # System monitor
-                with gr.Row():
-                    with gr.Column(scale=1, min_width=200):
-                        gpu_monitor = gr.Textbox(
-                            value="Loading...",
-                            lines=4.5,
-                            container=False,
-                            interactive=False,
-                            show_label=False,
-                            elem_classes="monitor-box gpu-monitor"
-                        )
-                    with gr.Column(scale=1, min_width=200):
-                        cpu_monitor = gr.Textbox(
-                            value="Loading...",
-                            lines=4,
-                            container=False,
-                            interactive=False,
-                            show_label=False,
-                            elem_classes="monitor-box cpu-monitor"
-                        )
+                # System monitor (UI only - timer is shared in app.py)
+                from modules.system_monitor_ui import create_monitor_textboxes
+                gpu_monitor, cpu_monitor = create_monitor_textboxes()
 
                 # Hidden state for upscaled paths and original info (for save naming)
                 upscale_result_path = gr.State(value=None)
@@ -1661,20 +1644,14 @@ def create_tab(services: "SharedServices") -> gr.TabItem:
             status_component=upscale_status
         )
         
+        # Register monitor components for shared timer in app.py
+        services.inter_module.register_component("upscale_gpu_monitor", gpu_monitor)
+        services.inter_module.register_component("upscale_cpu_monitor", cpu_monitor)
+        
         # Fallback: check for pending images when tab is selected
         tab.select(
             fn=services.inter_module.image_transfer.create_tab_select_handler(TAB_ID),
             outputs=[upscale_input_image, upscale_status]
         )
-        
-        # System Monitor
-        def update_monitor():
-            if services.system_monitor:
-                gpu_info, cpu_info = services.system_monitor.get_system_info()
-                return gpu_info, cpu_info
-            return "N/A", "N/A"
-        
-        monitor_timer = gr.Timer(2, active=True)
-        monitor_timer.tick(fn=update_monitor, outputs=[gpu_monitor, cpu_monitor])
     
     return tab

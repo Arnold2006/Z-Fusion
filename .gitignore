@@ -1,2 +1,3 @@
 # User settings (modified at runtime)
 app/modules/llm_settings.json
+app/modules/edit_prompts.json
