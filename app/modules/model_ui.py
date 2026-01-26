@@ -327,7 +327,7 @@ MODEL_DOWNLOADS = {
     },
     # Flux2 Klein 4B Standard
     "flux2_klein_4b_diffusion": {
-        "repo_id": "black-forest-labs/FLUX.2-klein-4B",
+        "repo_id": "black-forest-labs/FLUX.2-klein-4B-fp8",
         "filename": "flux-2-klein-4b-fp8.safetensors",
         "local_name": "flux-2-klein-4b-fp8.safetensors",
         "folder_key": "diffusion",

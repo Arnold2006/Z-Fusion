@@ -74,7 +74,7 @@ def setup_shared_monitor_timer(services: "SharedServices", interval: float = 2.0
     monitor_outputs = []
     
     # Known tab IDs that have monitors
-    tab_ids = ["zimage", "upscale", "experimental"]
+    tab_ids = ["zimage", "edit", "upscale", "experimental"]
     
     for tab_id in tab_ids:
         gpu = services.inter_module.get_component(f"{tab_id}_gpu_monitor")
