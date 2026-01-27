@@ -510,6 +510,46 @@ def _wire_image_transfers(services: SharedServices):
     else:
         logger.warning("Failed to wire Experimental -> Upscale (receiver not ready)")
     
+    # Wire Edit "Send to SeedVR2" button
+    edit_send_btn = services.inter_module.get_component("edit_send_btn")
+    edit_result_path = services.inter_module.get_component("edit_result_path")
+    edit_status = services.inter_module.get_component("edit_status")
+    
+    receiver = image_transfer.get_receiver("upscale")
+    if receiver and all([edit_send_btn, edit_result_path, edit_status]):
+        def edit_send_handler(result_path):
+            import gradio as gr
+            if not result_path:
+                return "❌ No image to send", gr.update(), gr.update(), gr.update()
+            
+            receiver = image_transfer.get_receiver("upscale")
+            if receiver:
+                image_transfer.set_pending("upscale", result_path)
+                return (
+                    f"✓ Sent to {receiver.label}",
+                    result_path,
+                    f"✓ Received image",
+                    gr.Tabs(selected="upscale")
+                )
+            return "❌ Upscale tab not available", gr.update(), gr.update(), gr.update()
+        
+        outputs = [edit_status, receiver.input_component]
+        if receiver.status_component:
+            outputs.append(receiver.status_component)
+        else:
+            import gradio as gr
+            outputs.append(gr.State())
+        outputs.append(services.inter_module.main_tabs)
+        
+        edit_send_btn.click(
+            fn=edit_send_handler,
+            inputs=[edit_result_path],
+            outputs=outputs
+        )
+        logger.info("Wired Edit -> Upscale image transfer")
+    else:
+        logger.warning("Could not wire Edit -> Upscale - some components not registered")
+    
     # Wire Wildcards "Send to Z-Image" button
     wildcard_send_btn = services.inter_module.get_component("wildcard_send_btn")
     wildcard_test_input = services.inter_module.get_component("wildcard_test_input")
