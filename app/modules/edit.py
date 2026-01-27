@@ -158,6 +158,7 @@ def get_prompt_library_path(app_dir: Path) -> Path:
 
 
 def load_prompt_library(app_dir: Path) -> dict:
+    """Load prompt library from file, or initialize with defaults if not exists."""
     path = get_prompt_library_path(app_dir)
     if path.exists():
         try:
@@ -165,6 +166,8 @@ def load_prompt_library(app_dir: Path) -> dict:
                 return json.load(f)
         except Exception as e:
             logger.warning(f"Failed to load prompt library: {e}")
+    # First run or corrupted file - seed with defaults
+    save_prompt_library(app_dir, DEFAULT_PROMPTS.copy())
     return DEFAULT_PROMPTS.copy()
 
 
@@ -180,6 +183,7 @@ def save_prompt_library(app_dir: Path, prompts: dict) -> bool:
 
 
 def get_prompt_choices(prompts: dict) -> list:
+    """Get sorted prompt names with empty option first."""
     return [""] + sorted(prompts.keys())
 
 
@@ -456,20 +460,38 @@ def create_tab(services: "SharedServices") -> gr.TabItem:
                 
                 result_path = gr.State(value=None)
                 
-                # === PROMPT LIBRARY ===
+                # === PROMPT LIBRARY (Full Editor) ===
                 with gr.Accordion("📝 Prompt Library", open=False):
-                    gr.Markdown("""
-*Save and reuse your favorite edit prompts. Tips for effective prompts:*
-- Be specific about the desired style or transformation
-- Mention what to preserve (e.g., "keep the subject's pose")
-- For multi-image edits, reference which image provides what
-""")
+                    gr.Markdown("*Create, edit, and manage your edit prompts. Select a prompt to edit it, or enter a new name to create one.*")
+                    
+                    # Dropdown to select/load existing prompt
+                    library_select = gr.Dropdown(
+                        label="Select Prompt",
+                        choices=get_prompt_choices(prompt_library),
+                        value="",
+                        allow_custom_value=False
+                    )
+                    
+                    # Editable content area
+                    library_content = gr.Textbox(
+                        label="Prompt Content",
+                        placeholder="Select a prompt above to edit, or start typing to create a new one...",
+                        lines=5,
+                        max_lines=10
+                    )
+                    
+                    # Name field for create/rename
+                    library_name = gr.Textbox(
+                        label="Prompt Name",
+                        placeholder="Leave empty to update selected, or enter new name to create/rename",
+                        lines=1
+                    )
+                    
                     with gr.Row():
-                        new_prompt_name = gr.Textbox(label="Prompt Name", placeholder="e.g., Cinematic Portrait", scale=1)
-                        new_prompt_text = gr.Textbox(label="Prompt Text", placeholder="Enter the prompt to save...", scale=2)
-                    with gr.Row():
-                        save_prompt_btn = gr.Button("💾 Save Prompt", size="sm", variant="primary")
-                        delete_prompt_btn = gr.Button("🗑️ Delete Selected", size="sm", variant="stop")
+                        library_save_btn = gr.Button("💾 Save", size="sm", variant="primary")
+                        library_delete_btn = gr.Button("🗑️ Delete", size="sm", variant="stop")
+                        library_reset_btn = gr.Button("🔄 Reset to Defaults", size="sm")
+                    
                     prompt_library_status = gr.Textbox(label="", show_label=False, interactive=False, lines=1)
         
         # ===== EVENT HANDLERS =====
@@ -504,51 +526,116 @@ def create_tab(services: "SharedServices") -> gr.TabItem:
         
         # Prompt library handlers
         def on_prompt_select(name):
+            """Load prompt into the edit instruction field (for generation tabs)."""
             if not name:
                 return ""
             library = load_prompt_library(services.app_dir)
             return library.get(name, "")
         
-        def on_save_prompt(name, text):
-            if not name or not name.strip():
-                return "❌ Enter a prompt name", gr.update(), gr.update(), gr.update()
-            if not text or not text.strip():
-                return "❌ Enter prompt text", gr.update(), gr.update(), gr.update()
+        def on_library_select(name):
+            """Load prompt into the library editor when selected."""
+            if not name:
+                return "", ""
+            library = load_prompt_library(services.app_dir)
+            content = library.get(name, "")
+            return content, ""  # Clear the name field when loading existing
+        
+        def on_library_save(selected, content, new_name):
+            """Save or create a prompt. If new_name is provided, use that; otherwise update selected."""
+            if not content or not content.strip():
+                return "❌ Prompt content cannot be empty", gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
             
             library = load_prompt_library(services.app_dir)
-            library[name.strip()] = text.strip()
+            
+            # Determine the target name
+            target_name = new_name.strip() if new_name and new_name.strip() else selected
+            
+            if not target_name:
+                return "❌ Enter a prompt name or select an existing prompt", gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
+            
+            is_new = target_name not in library
+            library[target_name] = content.strip()
             
             if save_prompt_library(services.app_dir, library):
                 choices = get_prompt_choices(library)
-                return f"✓ Saved '{name.strip()}'", gr.update(choices=choices), gr.update(choices=choices), gr.update(choices=choices)
-            return "❌ Failed to save", gr.update(), gr.update(), gr.update()
+                action = "Created" if is_new else "Updated"
+                return (
+                    f"✓ {action} '{target_name}'",
+                    gr.update(choices=choices, value=target_name),  # library_select
+                    gr.update(choices=choices),  # prompt_select_1
+                    gr.update(choices=choices),  # prompt_select_2
+                    gr.update(choices=choices),  # prompt_select_3
+                    ""  # Clear name field
+                )
+            return "❌ Failed to save", gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
         
-        def on_delete_prompt(name):
+        def on_library_delete(name):
+            """Delete the selected prompt."""
             if not name:
-                return "❌ Select a prompt to delete", gr.update(), gr.update(), gr.update()
+                return "❌ Select a prompt to delete", gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
             
             library = load_prompt_library(services.app_dir)
-            if name in library:
-                del library[name]
-                save_prompt_library(services.app_dir, library)
-                choices = get_prompt_choices(library)
-                return f"✓ Deleted '{name}'", gr.update(choices=choices, value=""), gr.update(choices=choices, value=""), gr.update(choices=choices, value="")
-            return "❌ Prompt not found", gr.update(), gr.update(), gr.update()
+            if name not in library:
+                return "❌ Prompt not found", gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
+            
+            if len(library) <= 1:
+                return "❌ Cannot delete the last prompt", gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
+            
+            del library[name]
+            save_prompt_library(services.app_dir, library)
+            choices = get_prompt_choices(library)
+            
+            return (
+                f"✓ Deleted '{name}'",
+                gr.update(choices=choices, value=""),  # library_select
+                "",  # library_content
+                "",  # library_name
+                gr.update(choices=choices, value=""),  # prompt_select_1
+                gr.update(choices=choices, value=""),  # prompt_select_2
+                gr.update(choices=choices, value=""),  # prompt_select_3
+            )
         
-        # Wire prompt selection
+        def on_library_reset():
+            """Reset library to defaults (replaces all prompts)."""
+            save_prompt_library(services.app_dir, DEFAULT_PROMPTS.copy())
+            choices = get_prompt_choices(DEFAULT_PROMPTS)
+            return (
+                "✓ Reset to defaults",
+                gr.update(choices=choices, value=""),  # library_select
+                "",  # library_content
+                "",  # library_name
+                gr.update(choices=choices, value=""),  # prompt_select_1
+                gr.update(choices=choices, value=""),  # prompt_select_2
+                gr.update(choices=choices, value=""),  # prompt_select_3
+            )
+        
+        # Wire prompt selection (for generation tabs - loads into edit instruction)
         prompt_select_1.change(fn=on_prompt_select, inputs=[prompt_select_1], outputs=[prompt_1])
         prompt_select_2.change(fn=on_prompt_select, inputs=[prompt_select_2], outputs=[prompt_2])
         prompt_select_3.change(fn=on_prompt_select, inputs=[prompt_select_3], outputs=[prompt_3])
         
-        save_prompt_btn.click(
-            fn=on_save_prompt,
-            inputs=[new_prompt_name, new_prompt_text],
-            outputs=[prompt_library_status, prompt_select_1, prompt_select_2, prompt_select_3]
+        # Wire library editor
+        library_select.change(
+            fn=on_library_select,
+            inputs=[library_select],
+            outputs=[library_content, library_name]
         )
-        delete_prompt_btn.click(
-            fn=on_delete_prompt,
-            inputs=[prompt_select_1],
-            outputs=[prompt_library_status, prompt_select_1, prompt_select_2, prompt_select_3]
+        
+        library_save_btn.click(
+            fn=on_library_save,
+            inputs=[library_select, library_content, library_name],
+            outputs=[prompt_library_status, library_select, prompt_select_1, prompt_select_2, prompt_select_3, library_name]
+        )
+        
+        library_delete_btn.click(
+            fn=on_library_delete,
+            inputs=[library_select],
+            outputs=[prompt_library_status, library_select, library_content, library_name, prompt_select_1, prompt_select_2, prompt_select_3]
+        )
+        
+        library_reset_btn.click(
+            fn=on_library_reset,
+            outputs=[prompt_library_status, library_select, library_content, library_name, prompt_select_1, prompt_select_2, prompt_select_3]
         )
         
         # Edit handlers
