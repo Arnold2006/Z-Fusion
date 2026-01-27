@@ -4,7 +4,7 @@ Z-Image Generation Module
 Provides the Z-Image Turbo generation tab with Text→Image, Image→Image,
 and Prompt Assistant functionality.
 """
-
+import os
 import logging
 import random
 import shutil
@@ -35,7 +35,7 @@ logger = logging.getLogger(__name__)
 
 # Module metadata
 TAB_ID = "zimage"
-TAB_LABEL = "⚡ Z-Image"
+TAB_LABEL = "⚡Image"
 TAB_ORDER = 0
 
 # Fallback sampler/scheduler lists (used if ComfyUI not available)
@@ -378,6 +378,7 @@ def fetch_comfyui_options(kit) -> dict:
 async def generate_image(
     services: "SharedServices",
     prompt: str,
+    negative_prompt: str,
     gen_type: str,
     clip_type: str,
     use_gguf: bool,
@@ -478,6 +479,7 @@ async def generate_image(
             # Build params dict
             params = {
                 "prompt": prompt_text,
+                "negative_prompt": negative_prompt.strip() if negative_prompt else "",
                 "steps": int(steps),
                 "seed": int(current_seed),
                 "cfg": cfg,
@@ -706,6 +708,11 @@ def create_tab(services: "SharedServices") -> gr.TabItem:
                         seed = gr.Number(label="Seed", value=new_random_seed(), minimum=0, step=1, scale=1)
                         randomize_seed = gr.Checkbox(label="🎲", value=True, scale=0, min_width=60)
                         batch_count = gr.Slider(label="Batch", value=1, minimum=1, maximum=100, step=1, scale=2, info="Images to generate")
+                    negative_prompt = gr.Textbox(
+                        label="Negative Prompt",
+                        placeholder="Optional. Only effective when CFG > 1",
+                        lines=1
+                    )
                 
                 # Seed Variance - adds noise to text embeddings for more variation
                 with gr.Accordion("🎲 Seed Variance", open=False):
@@ -885,6 +892,7 @@ Distilled "turbo" models can produce similar images across different seeds, espe
             seed=seed,
             randomize_seed=randomize_seed,
             batch_count=batch_count,
+            negative_prompt=negative_prompt,
             # Seed variance
             sv_enabled=sv_enabled,
             sv_noise_insert=sv_noise_insert,
@@ -962,6 +970,7 @@ def _setup_event_handlers(
     seed = components["seed"]
     randomize_seed = components["randomize_seed"]
     batch_count = components["batch_count"]
+    negative_prompt = components["negative_prompt"]
     sv_enabled = components["sv_enabled"]
     sv_noise_insert = components["sv_noise_insert"]
     sv_randomize_percent = components["sv_randomize_percent"]
@@ -1180,6 +1189,7 @@ def _setup_event_handlers(
     # steps, seed, randomize_seed, cfg, shift, sampler_name, scheduler, unet_name, clip_name, vae_name, loras...
     
     common_inputs = [
+        negative_prompt,                   # negative_prompt - passed to generate_image
         model_components.clip_type_state,  # clip_type - extracted by wrapper
         model_components.use_gguf,         # use_gguf - extracted by wrapper
         steps, seed, randomize_seed, cfg, shift,
@@ -1196,12 +1206,12 @@ def _setup_event_handlers(
     
     # Wrapper functions for async generate (async generators)
     # Returns (gallery, status, seed, selected_image) - selected_image is always None to clear stale selection
-    async def generate_t2i(p, w, h, clip_type, gguf, *args):
-        async for gallery, status, seed_val in generate_image(services, p, "t2i", clip_type, gguf, w, h, None, 2.0, 0.67, *args):
+    async def generate_t2i(p, w, h, neg, clip_type, gguf, *args):
+        async for gallery, status, seed_val in generate_image(services, p, neg, "t2i", clip_type, gguf, w, h, None, 2.0, 0.67, *args):
             yield gallery, status, seed_val, None  # Clear selected_gallery_image on each yield
     
-    async def generate_i2i(p, img, mp, dn, clip_type, gguf, *args):
-        async for gallery, status, seed_val in generate_image(services, p, "i2i", clip_type, gguf, 1024, 1024, img, mp, dn, *args):
+    async def generate_i2i(p, img, mp, dn, neg, clip_type, gguf, *args):
+        async for gallery, status, seed_val in generate_image(services, p, neg, "i2i", clip_type, gguf, 1024, 1024, img, mp, dn, *args):
             yield gallery, status, seed_val, None  # Clear selected_gallery_image on each yield
     
     # T2I generate - clears selected_gallery_image to prevent stale selection bug
