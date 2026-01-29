@@ -521,7 +521,8 @@ def create_tab(services: "SharedServices") -> gr.TabItem:
             if not res_path:
                 return "❌ No image to save"
             prompt = p1 or p2 or p3 or "edit"
-            save_to_outputs(res_path, prompt, outputs_dir)
+            current_outputs_dir = services.get_outputs_dir()
+            save_to_outputs(res_path, prompt, current_outputs_dir)
             return "✓ Saved"
         
         # Prompt library handlers
@@ -674,7 +675,12 @@ def create_tab(services: "SharedServices") -> gr.TabItem:
         stop_3_btn.click(fn=stop_generation, outputs=[status])
         
         save_btn.click(fn=save_result, inputs=[result_path, prompt_1, prompt_2, prompt_3], outputs=[status])
-        open_folder_btn.click(fn=lambda: open_folder(edit_outputs_dir))
+        
+        def open_edit_outputs_folder():
+            current_outputs_dir = services.get_outputs_dir()
+            open_folder(current_outputs_dir / "edit")
+        
+        open_folder_btn.click(fn=open_edit_outputs_folder)
         
         # Register components
         services.inter_module.register_component("edit_send_btn", send_btn)

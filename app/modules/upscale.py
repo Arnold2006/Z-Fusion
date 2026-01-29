@@ -1617,7 +1617,8 @@ def create_tab(services: "SharedServices") -> gr.TabItem:
         def save_upscaled_image(image_path, original_path, resolution):
             if not image_path:
                 return "❌ No image to save"
-            saved_path = save_upscale_to_outputs(image_path, original_path, resolution or 4096, outputs_dir)
+            current_outputs_dir = services.get_outputs_dir()
+            saved_path = save_upscale_to_outputs(image_path, original_path, resolution or 4096, current_outputs_dir)
             return f"✓ Saved: {Path(saved_path).name}"
         
         upscale_save_btn.click(
@@ -1628,7 +1629,8 @@ def create_tab(services: "SharedServices") -> gr.TabItem:
         
         # Open folder helpers
         def open_outputs_folder():
-            open_folder(outputs_dir / "upscaled")
+            current_outputs_dir = services.get_outputs_dir()
+            open_folder(current_outputs_dir / "upscaled")
         
         def open_comfyui_folder():
             open_folder(comfyui_output_dir)
