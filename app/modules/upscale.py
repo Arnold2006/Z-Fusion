@@ -41,6 +41,9 @@ _cancel_batch = False
 # Supported image extensions for batch processing
 IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif")
 
+# Supported video extensions for batch processing
+VIDEO_EXTENSIONS = (".mp4", ".mov", ".avi", ".mkv", ".webm", ".m4v", ".mts", ".m2ts")
+
 # SeedVR2 Upscaler models (auto-download on demand by node)
 SEEDVR2_DIT_MODELS = [
     "seedvr2_ema_3b-Q4_K_M.gguf",
@@ -270,6 +273,19 @@ def get_images_from_folder(folder_path: str) -> List[str]:
     return sorted(images)
 
 
+def get_videos_from_folder(folder_path: str) -> List[str]:
+    """Get list of video files from a folder path."""
+    if not folder_path or not folder_path.strip():
+        return []
+    path = Path(folder_path.strip())
+    if not path.exists() or not path.is_dir():
+        return []
+    videos = set()
+    for ext in VIDEO_EXTENSIONS:
+        videos.update(str(f) for f in path.glob(f"*{ext}"))
+        videos.update(str(f) for f in path.glob(f"*{ext.upper()}"))
+    return sorted(videos)
+
 def downscale_image_if_needed(image_path: str, max_resolution: int) -> str:
     """Downscale image if it exceeds max_resolution. Returns path (original or temp scaled)."""
     if max_resolution <= 0:
@@ -317,6 +333,19 @@ def get_batch_images(batch_files: Optional[List], folder_path: str) -> List[str]
     # From folder path
     images.extend(get_images_from_folder(folder_path))
     return images
+
+
+def get_batch_videos(batch_files: Optional[List], folder_path: str) -> List[str]:
+    """Combine videos from file upload and folder path."""
+    videos = []
+    if batch_files:
+        for f in batch_files:
+            if hasattr(f, 'name'):
+                videos.append(f.name)
+            elif isinstance(f, str):
+                videos.append(f)
+    videos.extend(get_videos_from_folder(folder_path))
+    return videos
 
 
 async def upscale_image(
@@ -729,6 +758,163 @@ async def upscale_video(
         return None, f"❌ {str(e)}", seed, None
 
 
+async def upscale_video_batch(
+    services: "SharedServices",
+    batch_files: Optional[List],
+    folder_path: str,
+    seed: int,
+    randomize_seed: bool,
+    resolution: int,
+    # Export settings
+    video_format: str,
+    video_crf: int,
+    video_pix_fmt: str,
+    prores_profile: str,
+    save_png_sequence: bool,
+    save_to_comfyui: bool,
+    # Model settings
+    dit_model: str,
+    blocks_to_swap: int,
+    attention_mode: str,
+    # VAE settings
+    encode_tiled: bool,
+    encode_tile_size: int,
+    encode_tile_overlap: int,
+    decode_tiled: bool,
+    decode_tile_size: int,
+    decode_tile_overlap: int,
+    # Upscaler settings
+    batch_size: int,
+    uniform_batch_size: bool,
+    color_correction: str,
+    temporal_overlap: int,
+    input_noise_scale: float,
+    latent_noise_scale: float,
+):
+    """Batch upscale videos using SeedVR2. Auto-saves to timestamped folder. Yields (status, seed, output_folder)."""
+    global _cancel_batch
+    outputs_dir = services.get_outputs_dir()
+
+    device, offload_device = get_device_params()
+
+    videos = get_batch_videos(batch_files, folder_path)
+    if not videos:
+        yield "❌ No videos found. Upload files or enter a folder path.", seed, None
+        return
+
+    workflow_path = services.workflows_dir / "SeedVR2_HD_video_upscale.json"
+    if not workflow_path.exists():
+        yield "❌ Video upscale workflow not found", seed, None
+        return
+
+    format_map = {
+        "H.264 (MP4)": ("video/h264-mp4", ".mp4"),
+        "H.265 (MP4)": ("video/h265-mp4", ".mp4"),
+        "ProRes (MOV)": ("video/ProRes", ".mov"),
+    }
+    vhs_format, file_ext = format_map.get(video_format, ("video/h264-mp4", ".mp4"))
+
+    # Create timestamped output folder
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    batch_output_dir = outputs_dir / "upscaled" / f"batch_video_{timestamp}"
+    batch_output_dir.mkdir(parents=True, exist_ok=True)
+
+    base_seed = new_random_seed_32bit() if randomize_seed else min(int(seed), 4294967295)
+    _cancel_batch = False
+
+    logger.info(f"Batch video upscale: {len(videos)} videos, res={resolution}, device={device}")
+
+    total = len(videos)
+    success_count = 0
+    total_duration = 0.0
+
+    for i, vid_path in enumerate(videos):
+        if _cancel_batch:
+            _cancel_batch = False
+            yield f"⏹️ Cancelled after {i}/{total} | Saved to: {batch_output_dir}", base_seed, str(batch_output_dir)
+            return
+
+        current_seed = base_seed + i
+        yield f"⏳ [{i+1}/{total}] {Path(vid_path).name}...", base_seed, str(batch_output_dir)
+
+        try:
+            input_video_name = extract_meaningful_filename(vid_path)
+            if input_video_name == "image":
+                input_video_name = "video"
+
+            comfyui_prefix = f"seedvr2_batch_{timestamp}_{i:04d}"
+            png_prefix = f"{comfyui_prefix}_png/{comfyui_prefix}"
+
+            params = {
+                "video": vid_path,
+                "seed": current_seed,
+                "resolution": int(resolution),
+                "dit_model": dit_model,
+                "blocks_to_swap": int(blocks_to_swap),
+                "attention_mode": attention_mode,
+                "encode_tiled": encode_tiled,
+                "encode_tile_size": int(encode_tile_size),
+                "encode_tile_overlap": int(encode_tile_overlap),
+                "decode_tiled": decode_tiled,
+                "decode_tile_size": int(decode_tile_size),
+                "decode_tile_overlap": int(decode_tile_overlap),
+                "batch_size": int(batch_size),
+                "uniform_batch_size": uniform_batch_size,
+                "color_correction": color_correction,
+                "temporal_overlap": int(temporal_overlap),
+                "input_noise_scale": float(input_noise_scale),
+                "latent_noise_scale": float(latent_noise_scale),
+                "filename_prefix": comfyui_prefix,
+                "video_format": vhs_format,
+                "video_crf": int(video_crf),
+                "video_pix_fmt": video_pix_fmt,
+                "prores_profile": prores_profile,
+                "save_video_to_comfyui": save_to_comfyui,
+                "save_png_sequence": save_png_sequence,
+                "png_filename_prefix": png_prefix,
+                "device": device,
+                "offload_device": offload_device,
+            }
+
+            result = await services.kit.execute(str(workflow_path), params)
+
+            if result.status == "error":
+                logger.warning(f"Batch video item {i+1} failed: {result.msg}")
+                continue
+
+            if not result.videos:
+                logger.warning(f"Batch video item {i+1}: No video generated")
+                continue
+
+            video_url = result.videos[0]
+            output_filename = f"{input_video_name}_{resolution}p{file_ext}"
+            output_path = batch_output_dir / output_filename
+
+            if video_url.startswith("http"):
+                async with httpx.AsyncClient(timeout=300) as client:
+                    response = await client.get(video_url)
+                    response.raise_for_status()
+                    with open(output_path, "wb") as f:
+                        f.write(response.content)
+            else:
+                shutil.copy2(video_url, output_path)
+
+            success_count += 1
+            if result.duration:
+                total_duration += result.duration
+
+        except Exception as e:
+            logger.warning(f"Batch video item {i+1} error: {e}")
+            continue
+
+    avg_time = total_duration / success_count if success_count else 0
+    format_str = video_format.split(" ")[0]
+    status = f"✓ {success_count}/{total} videos | {format_str} | {total_duration:.1f}s total ({avg_time:.1f}s avg)"
+    status += f"\n📁 {batch_output_dir}"
+    yield status, base_seed, str(batch_output_dir)
+
+
+
 def get_upscale_preset(name: str, settings_manager) -> dict:
     """Get preset by name - checks user presets first, then built-in defaults."""
     user_presets = settings_manager.get("upscale_presets", {})
@@ -1112,6 +1298,70 @@ def create_tab(services: "SharedServices") -> gr.TabItem:
                             )
                         
                         upscale_video_btn = gr.Button("🎬 Upscale Video", variant="primary", size="lg")
+                    
+                    with gr.TabItem("🎬 Batch Video", id="upscale_video_batch_tab"):
+                        batch_video_files = gr.File(
+                            label="Upload Videos",
+                            file_count="multiple",
+                            file_types=["video"],
+                            type="filepath"
+                        )
+                        with gr.Group():
+                            batch_video_folder = gr.Textbox(
+                                label="Or Enter Folder Path",
+                                placeholder="C:\\path\\to\\videos or /path/to/videos",
+                                info="Process all videos in a folder"
+                            )
+                            gr.HTML("<p style='font-size: 0.85em; margin: -8px -8px 0 0; padding: 0 8px;'>📁 All outputs auto-saved to a timestamped folder in <code>outputs/upscaled/</code></p>")
+                        with gr.Row():
+                            batch_video_resolution = gr.Slider(
+                                label="Resolution",
+                                value=initial_preset.get("video_resolution", 1080),
+                                minimum=640,
+                                maximum=2160,
+                                step=2,
+                                info="Target short-side resolution",
+                                scale=3
+                            )
+                            batch_video_res_720_btn = gr.Button("720", size="sm", scale=0, min_width=50)
+                            batch_video_res_1080_btn = gr.Button("1080", size="sm", scale=0, min_width=50)
+                        with gr.Accordion("📹 Export Settings", open=False):
+                            batch_video_format = gr.Dropdown(
+                                label="Format",
+                                choices=["H.264 (MP4)", "H.265 (MP4)", "ProRes (MOV)"],
+                                value=initial_video_format,
+                                info="Output video format"
+                            )
+                            batch_video_crf = gr.Slider(
+                                label="Quality (CRF)",
+                                value=initial_preset.get("video_crf", 19),
+                                minimum=0, maximum=51, step=1,
+                                info="Lower = better quality. 19 is visually lossless",
+                                visible=not initial_is_prores
+                            )
+                            batch_video_pix_fmt = gr.Dropdown(
+                                label="Pixel Format",
+                                choices=["yuv420p", "yuv420p10le"],
+                                value=initial_preset.get("video_pix_fmt", "yuv420p"),
+                                visible=not initial_is_prores
+                            )
+                            batch_prores_profile = gr.Dropdown(
+                                label="ProRes Profile",
+                                choices=["lt", "standard", "hq", "4444", "4444xq"],
+                                value=initial_preset.get("prores_profile", "hq"),
+                                visible=initial_is_prores
+                            )
+                            batch_video_save_png = gr.Checkbox(
+                                label="Also save PNG sequence (16-bit lossless)",
+                                value=initial_preset.get("save_png_sequence", False)
+                            )
+                            batch_video_save_comfyui = gr.Checkbox(
+                                label="Also save video to ComfyUI output folder",
+                                value=initial_preset.get("save_to_comfyui", True)
+                            )
+                        with gr.Row():
+                            batch_video_upscale_btn = gr.Button("🎬 Upscale Video Batch", variant="primary", size="sm", scale=3)
+                            batch_video_stop_btn = gr.Button("⏹️ Stop", size="sm", variant="stop", scale=1)
                 
                 with gr.Accordion("🔧 SeedVR2 Settings", open=True):
                     initial_dit_model = initial_preset.get("dit_model", DEFAULT_SEEDVR2_DIT)
@@ -1287,6 +1537,7 @@ def create_tab(services: "SharedServices") -> gr.TabItem:
                 upscale_result_resolution = gr.State(value=None)
                 upscale_video_result_path = gr.State(value=None)
                 batch_output_folder = gr.State(value=None)
+                batch_video_output_folder = gr.State(value=None)
                 
                 with gr.Accordion("ℹ️ Upscale Help", open=False):
                     gr.Markdown("""
@@ -1600,6 +1851,66 @@ def create_tab(services: "SharedServices") -> gr.TabItem:
             ] + batch_common_inputs,
             outputs=[upscale_status, upscale_seed, batch_output_folder]
         )
+        
+        # Batch video format change handler
+        def on_batch_video_format_change(format_choice):
+            is_prores = "ProRes" in format_choice
+            is_h265 = "H.265" in format_choice
+            crf_default = 22 if is_h265 else 19
+            return (
+                gr.update(visible=not is_prores),
+                gr.update(visible=not is_prores),
+                gr.update(visible=is_prores),
+                gr.update(value=crf_default) if not is_prores else gr.update(),
+            )
+
+        batch_video_format.change(
+            fn=on_batch_video_format_change,
+            inputs=[batch_video_format],
+            outputs=[batch_video_crf, batch_video_pix_fmt, batch_prores_profile, batch_video_crf]
+        )
+
+        # Batch video resolution quick buttons
+        batch_video_res_720_btn.click(fn=lambda: 720, outputs=[batch_video_resolution])
+        batch_video_res_1080_btn.click(fn=lambda: 1080, outputs=[batch_video_resolution])
+
+        # Batch video upscale handler
+        async def run_batch_video_upscale(
+            files, folder, seed_val, randomize, resolution,
+            video_format, video_crf, video_pix_fmt, prores_profile,
+            save_png, save_comfyui,
+            dit_model, blocks_to_swap, attention_mode,
+            encode_tiled, encode_tile_size, encode_tile_overlap,
+            decode_tiled, decode_tile_size, decode_tile_overlap,
+            batch_size, uniform_batch, color_correction, temporal_overlap,
+            input_noise, latent_noise
+        ):
+            async for result in upscale_video_batch(
+                services, files, folder, seed_val, randomize, resolution,
+                video_format, video_crf, video_pix_fmt, prores_profile,
+                save_png, save_comfyui,
+                dit_model, blocks_to_swap, attention_mode,
+                encode_tiled, encode_tile_size, encode_tile_overlap,
+                decode_tiled, decode_tile_size, decode_tile_overlap,
+                batch_size, uniform_batch, color_correction, temporal_overlap,
+                input_noise, latent_noise
+            ):
+                status_msg, actual_seed, output_folder = result
+                yield status_msg, actual_seed, output_folder
+
+        batch_video_upscale_btn.click(
+            fn=run_batch_video_upscale,
+            inputs=[
+                batch_video_files, batch_video_folder,
+                upscale_seed, upscale_randomize_seed,
+                batch_video_resolution,
+                batch_video_format, batch_video_crf, batch_video_pix_fmt, batch_prores_profile,
+                batch_video_save_png, batch_video_save_comfyui,
+            ] + batch_common_inputs,
+            outputs=[upscale_status, upscale_seed, batch_video_output_folder]
+        )
+
+        batch_video_stop_btn.click(fn=stop_upscale, outputs=[upscale_status])
         
         # Video export inputs (before common inputs)
         upscale_video_export_inputs = [
