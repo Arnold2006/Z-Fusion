@@ -28,7 +28,7 @@
     },
     "class_type": "SeedVR2VideoUpscaler",
     "_meta": {
-      "title": "Upscaler, $seed, $resolution, $batch_size, $uniform_batch_size, $color_correction, $temporal_overlap, $input_noise_scale, $latent_noise_scale"
+      "title": "Upscaler, $seed, $resolution, $batch_size, $uniform_batch_size, $color_correction, $temporal_overlap, $input_noise_scale, $latent_noise_scale, $offload_device"
     }
   },
   "13": {
@@ -47,7 +47,7 @@
     },
     "class_type": "SeedVR2LoadVAEModel",
     "_meta": {
-      "title": "VAE, $encode_tiled, $encode_tile_size, $encode_tile_overlap, $decode_tiled, $decode_tile_size, $decode_tile_overlap"
+      "title": "VAE, $encode_tiled, $encode_tile_size, $encode_tile_overlap, $decode_tiled, $decode_tile_size, $decode_tile_overlap, $device, $offload_device"
     }
   },
   "14": {
@@ -62,7 +62,7 @@
     },
     "class_type": "SeedVR2LoadDiTModel",
     "_meta": {
-      "title": "$dit_model.model, $blocks_to_swap, $attention_mode"
+      "title": "$dit_model.model, $blocks_to_swap, $attention_mode, $device, $offload_device"
     }
   },
   "24": {

@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, List, Optional
 import gradio as gr
 import httpx
 import imageio
+import torch
 from PIL import Image
 
 if TYPE_CHECKING:
@@ -127,6 +128,57 @@ UPSCALE_SETTING_KEYS = [
     "image_resolution", "image_max_resolution", "video_resolution",
 ]
 
+
+# =============================================================================
+# Device Detection
+# =============================================================================
+
+def get_gpu_backend() -> str:
+    """
+    Detect the available GPU backend.
+    
+    Returns:
+        "cuda" if NVIDIA CUDA is available
+        "mps" if Apple Metal is available
+        "cpu" if no GPU backend is available
+    """
+    try:
+        if torch.cuda.is_available():
+            logger.info("Detected CUDA backend")
+            return "cuda"
+        if hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+            logger.info("Detected MPS backend")
+            return "mps"
+    except Exception as e:
+        logger.warning(f"GPU detection failed: {e}, falling back to CPU")
+    
+    logger.info("Using CPU backend (no GPU detected)")
+    return "cpu"
+
+
+def get_device_params() -> tuple[str, str]:
+    """
+    Get device and offload_device parameters based on detected backend.
+    
+    Returns:
+        (device, offload_device) tuple with platform-appropriate values:
+        - CUDA: ("cuda:0", "cpu")
+        - MPS: ("mps", "none")
+        - CPU: ("cpu", "none")
+    """
+    backend = get_gpu_backend()
+    
+    if backend == "cuda":
+        return ("cuda:0", "cpu")
+    elif backend == "mps":
+        return ("mps", "none")
+    else:
+        return ("cpu", "none")
+
+
+# =============================================================================
+# Helper Functions
+# =============================================================================
 
 def new_random_seed_32bit():
     """Generate a new random seed (32-bit max for SeedVR2)."""
@@ -301,6 +353,9 @@ async def upscale_image(
         if input_image is None:
             return None, "❌ Please upload an image to upscale", seed, None, None, None
         
+        # Get device parameters based on platform
+        device, offload_device = get_device_params()
+        
         # Downscale input if needed
         processed_input = downscale_image_if_needed(input_image, max_input_resolution)
         
@@ -311,7 +366,7 @@ async def upscale_image(
         if not workflow_path.exists():
             return None, "❌ Upscale workflow not found", seed, None, None, None
         
-        logger.info(f"Upscaling image with SeedVR2: {dit_model}, res={resolution}, max={max_resolution}")
+        logger.info(f"Upscaling image with SeedVR2: {dit_model}, res={resolution}, max={max_resolution}, device={device}")
         
         params = {
             "image": processed_input,
@@ -335,6 +390,9 @@ async def upscale_image(
             "temporal_overlap": int(temporal_overlap),
             "input_noise_scale": float(input_noise_scale),
             "latent_noise_scale": float(latent_noise_scale),
+            # Device parameters
+            "device": device,
+            "offload_device": offload_device,
         }
         
         result = await services.kit.execute(str(workflow_path), params)
@@ -400,6 +458,9 @@ async def upscale_image_batch(
     global _cancel_batch
     outputs_dir = services.get_outputs_dir()
     
+    # Get device parameters based on platform
+    device, offload_device = get_device_params()
+    
     images = get_batch_images(batch_files, folder_path)
     if not images:
         yield "❌ No images found. Upload files or enter a folder path.", seed, None
@@ -417,6 +478,8 @@ async def upscale_image_batch(
     if not workflow_path.exists():
         yield "❌ Upscale workflow not found", seed, None
         return
+    
+    logger.info(f"Batch upscale: {len(images)} images, device={device}")
     
     total = len(images)
     success_count = 0
@@ -455,6 +518,9 @@ async def upscale_image_batch(
                 "temporal_overlap": int(temporal_overlap),
                 "input_noise_scale": float(input_noise_scale),
                 "latent_noise_scale": float(latent_noise_scale),
+                # Device parameters
+                "device": device,
+                "offload_device": offload_device,
             }
             
             result = await services.kit.execute(str(workflow_path), params)
@@ -532,6 +598,9 @@ async def upscale_video(
         if input_video is None:
             return None, "❌ Please upload a video to upscale", seed, None
         
+        # Get device parameters based on platform
+        device, offload_device = get_device_params()
+        
         # SeedVR2 uses 32-bit seed max (4294967295)
         actual_seed = new_random_seed_32bit() if randomize_seed else min(int(seed), 4294967295)
         
@@ -566,7 +635,7 @@ async def upscale_video(
         comfyui_prefix = f"seedvr2_temp_{timestamp}"
         png_prefix = f"{comfyui_prefix}_png/{comfyui_prefix}"
         
-        logger.info(f"Upscaling video with SeedVR2: {dit_model}, res={resolution}, format={vhs_format}, attn={attention_mode}")
+        logger.info(f"Upscaling video with SeedVR2: {dit_model}, res={resolution}, format={vhs_format}, attn={attention_mode}, device={device}")
         
         params = {
             "video": input_video,
@@ -600,6 +669,9 @@ async def upscale_video(
             # PNG sequence settings - save to ComfyUI first, we'll copy after
             "save_png_sequence": save_png_sequence,
             "png_filename_prefix": png_prefix,
+            # Device parameters
+            "device": device,
+            "offload_device": offload_device,
         }
         
         result = await services.kit.execute(str(workflow_path), params)
