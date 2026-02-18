@@ -16,7 +16,7 @@ import sys
 import tempfile
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, List, Optional
 
 import gradio as gr
 import httpx
@@ -51,6 +51,12 @@ DEFAULT_SAMPLERS = ["euler", "euler_ancestral", "dpmpp_2m", "dpmpp_2m_sde", "dpm
 
 # Session temp directory for results
 _results_temp_dir = tempfile.TemporaryDirectory(prefix="edit_results_")
+
+# Batch processing cancellation flag
+_cancel_batch = False
+
+# Supported image extensions for batch processing
+IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif")
 
 
 def new_random_seed():
@@ -318,6 +324,166 @@ async def run_edit_workflow(
 
 
 
+def get_batch_images(batch_files: Optional[List], folder_path: str) -> List[str]:
+    """Combine images from file upload and folder path."""
+    images = []
+    if batch_files:
+        for f in batch_files:
+            if hasattr(f, 'name'):
+                images.append(f.name)
+            elif isinstance(f, str):
+                images.append(f)
+    if folder_path and folder_path.strip():
+        path = Path(folder_path.strip())
+        if path.exists() and path.is_dir():
+            found = set()
+            for ext in IMAGE_EXTENSIONS:
+                found.update(str(f) for f in path.glob(f"*{ext}"))
+                found.update(str(f) for f in path.glob(f"*{ext.upper()}"))
+            images.extend(sorted(found))
+    return images
+
+
+async def run_edit_batch(
+    services: "SharedServices",
+    batch_files: Optional[List],
+    folder_path: str,
+    image2: str,
+    image3: str,
+    prompt: str,
+    negative_prompt: str,
+    seed: int,
+    randomize_seed: bool,
+    steps: int,
+    cfg: float,
+    megapixels: float,
+    sampler_name: str,
+    clip_type: str,
+    use_gguf: bool,
+    unet_name: str,
+    clip_name: str,
+    vae_name: str,
+    # LoRA params
+    lora1_enabled: bool, lora1_name: str, lora1_strength: float,
+    lora2_enabled: bool, lora2_name: str, lora2_strength: float,
+    lora3_enabled: bool, lora3_name: str, lora3_strength: float,
+    lora4_enabled: bool, lora4_name: str, lora4_strength: float,
+    lora5_enabled: bool, lora5_name: str, lora5_strength: float,
+    lora6_enabled: bool, lora6_name: str, lora6_strength: float,
+):
+    """Batch edit images. Auto-saves to timestamped subfolder. Yields (status, seed, output_folder)."""
+    global _cancel_batch
+    outputs_dir = services.get_outputs_dir()
+
+    images = get_batch_images(batch_files, folder_path)
+    if not images:
+        yield "❌ No images found. Upload files or enter a folder path.", seed, None
+        return
+
+    if not prompt or not prompt.strip():
+        yield "❌ Please enter an edit instruction", seed, None
+        return
+
+    if not unet_name:
+        yield "❌ Please select a diffusion model", seed, None
+        return
+    if not clip_name:
+        yield "❌ Please select a text encoder", seed, None
+        return
+
+    # Determine num_inputs based on which reference images are provided
+    num_inputs = 1 + (1 if image2 else 0) + (1 if image3 else 0)
+
+    # Validate workflow exists
+    workflow_file = get_workflow_file(num_inputs, use_gguf)
+    workflow_path = services.workflows_dir / workflow_file
+    if not workflow_path.exists():
+        yield f"❌ Workflow not found: {workflow_file}", seed, None
+        return
+
+    # Create timestamped output folder
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    batch_output_dir = outputs_dir / "edit" / f"batch_{timestamp}"
+    batch_output_dir.mkdir(parents=True, exist_ok=True)
+
+    base_seed = new_random_seed() if randomize_seed else int(seed)
+    _cancel_batch = False
+
+    lora_params = get_lora_params(
+        lora1_enabled, lora1_name, lora1_strength,
+        lora2_enabled, lora2_name, lora2_strength,
+        lora3_enabled, lora3_name, lora3_strength,
+        lora4_enabled, lora4_name, lora4_strength,
+        lora5_enabled, lora5_name, lora5_strength,
+        lora6_enabled, lora6_name, lora6_strength,
+    )
+
+    total = len(images)
+    success_count = 0
+    total_duration = 0.0
+
+    for i, img_path in enumerate(images):
+        if _cancel_batch:
+            _cancel_batch = False
+            yield f"⏹️ Cancelled after {i}/{total} | Saved to: {batch_output_dir}", base_seed, str(batch_output_dir)
+            return
+
+        current_seed = base_seed + i
+        yield f"⏳ [{i+1}/{total}] {Path(img_path).name}...", base_seed, str(batch_output_dir)
+
+        try:
+            params = {
+                "image1": img_path,
+                "prompt": prompt.strip(),
+                "negative_prompt": negative_prompt.strip() if negative_prompt else "",
+                "seed": current_seed,
+                "steps": int(steps),
+                "cfg": float(cfg),
+                "megapixels": float(megapixels),
+                "sampler_name": sampler_name,
+                "unet_name": unet_name,
+                "clip_name": clip_name,
+                "vae_name": vae_name,
+            }
+            if num_inputs >= 2:
+                params["image2"] = image2
+            if num_inputs >= 3:
+                params["image3"] = image3
+            params.update(lora_params)
+
+            result = await services.kit.execute(str(workflow_path), params)
+
+            if result.status == "error":
+                logger.warning(f"Batch edit item {i+1} failed: {result.msg}")
+                continue
+
+            if not result.images:
+                logger.warning(f"Batch edit item {i+1}: No images generated")
+                continue
+
+            image_path = result.images[0]
+            if image_path.startswith("http"):
+                image_path = await download_image_from_url(image_path)
+
+            # Save to batch output folder preserving original filename
+            stem = Path(img_path).stem
+            output_path = batch_output_dir / f"{stem}_edited.png"
+            shutil.copy2(image_path, output_path)
+
+            success_count += 1
+            if result.duration:
+                total_duration += result.duration
+
+        except Exception as e:
+            logger.warning(f"Batch edit item {i+1} error: {e}")
+            continue
+
+    avg_time = total_duration / success_count if success_count else 0
+    status = f"✓ {success_count}/{total} images | {total_duration:.1f}s total ({avg_time:.1f}s avg)"
+    status += f"\n📁 {batch_output_dir}"
+    yield status, base_seed, str(batch_output_dir)
+
+
 # =============================================================================
 # Tab Creation
 # =============================================================================
@@ -398,6 +564,40 @@ def create_tab(services: "SharedServices") -> gr.TabItem:
                         with gr.Row():
                             generate_3_btn = gr.Button("✏️ Edit", variant="primary", scale=3)
                             stop_3_btn = gr.Button("⏹️ Stop", size="sm", variant="stop", scale=1)
+                    
+                    # --- Batch Tab ---
+                    with gr.TabItem("📦 Batch", id="edit_batch"):
+                        batch_files = gr.File(
+                            label="Upload Images",
+                            file_count="multiple",
+                            file_types=["image"],
+                            type="filepath"
+                        )
+                        with gr.Group():
+                            batch_folder = gr.Textbox(
+                                label="Or Enter Folder Path",
+                                placeholder="C:\\path\\to\\images or /path/to/images",
+                                info="Process all images in a folder"
+                            )
+                            gr.HTML("<p style='font-size: 0.85em; margin: -8px -8px 0 0; padding: 0 8px;'>📁 All outputs auto-saved to a timestamped folder in <code>outputs/edit/</code></p>")
+                        batch_prompt = gr.Textbox(
+                            label="Edit Instruction",
+                            placeholder="e.g., change to realistic style, apply style from image 2...",
+                            lines=2
+                        )
+                        batch_prompt_select = gr.Dropdown(
+                            label="Load Saved Prompt",
+                            choices=get_prompt_choices(prompt_library),
+                            value="",
+                            allow_custom_value=False
+                        )
+                        with gr.Row():
+                            batch_image2 = gr.Image(label="Image 2 (Static Ref, optional)", type="filepath", height=200, elem_classes="image-window")
+                            batch_image3 = gr.Image(label="Image 3 (Static Ref, optional)", type="filepath", height=200, elem_classes="image-window")
+                        gr.HTML("<p style='font-size: 0.85em; color: #888; margin: 0; padding: 0 4px;'>ℹ️ Image 2 & 3 are optional static references applied to every image in the batch</p>")
+                        with gr.Row():
+                            batch_edit_btn = gr.Button("✏️ Edit Batch", variant="primary", scale=3)
+                            batch_stop_btn = gr.Button("⏹️ Stop", size="sm", variant="stop", scale=1)
                 
                 # === SHARED SETTINGS ===
                 with gr.Accordion("⚙️ Settings", open=False):
@@ -459,6 +659,7 @@ def create_tab(services: "SharedServices") -> gr.TabItem:
                 gpu_monitor, cpu_monitor = create_monitor_textboxes()
                 
                 result_path = gr.State(value=None)
+                batch_output_folder = gr.State(value=None)
                 
                 # === PROMPT LIBRARY (Full Editor) ===
                 with gr.Accordion("📝 Prompt Library", open=False):
@@ -544,7 +745,7 @@ def create_tab(services: "SharedServices") -> gr.TabItem:
         def on_library_save(selected, content, new_name):
             """Save or create a prompt. If new_name is provided, use that; otherwise update selected."""
             if not content or not content.strip():
-                return "❌ Prompt content cannot be empty", gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
+                return "❌ Prompt content cannot be empty", gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
             
             library = load_prompt_library(services.app_dir)
             
@@ -552,7 +753,7 @@ def create_tab(services: "SharedServices") -> gr.TabItem:
             target_name = new_name.strip() if new_name and new_name.strip() else selected
             
             if not target_name:
-                return "❌ Enter a prompt name or select an existing prompt", gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
+                return "❌ Enter a prompt name or select an existing prompt", gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
             
             is_new = target_name not in library
             library[target_name] = content.strip()
@@ -566,21 +767,22 @@ def create_tab(services: "SharedServices") -> gr.TabItem:
                     gr.update(choices=choices),  # prompt_select_1
                     gr.update(choices=choices),  # prompt_select_2
                     gr.update(choices=choices),  # prompt_select_3
+                    gr.update(choices=choices),  # batch_prompt_select
                     ""  # Clear name field
                 )
-            return "❌ Failed to save", gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
+            return "❌ Failed to save", gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
         
         def on_library_delete(name):
             """Delete the selected prompt."""
             if not name:
-                return "❌ Select a prompt to delete", gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
+                return "❌ Select a prompt to delete", gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
             
             library = load_prompt_library(services.app_dir)
             if name not in library:
-                return "❌ Prompt not found", gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
+                return "❌ Prompt not found", gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
             
             if len(library) <= 1:
-                return "❌ Cannot delete the last prompt", gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
+                return "❌ Cannot delete the last prompt", gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
             
             del library[name]
             save_prompt_library(services.app_dir, library)
@@ -594,6 +796,7 @@ def create_tab(services: "SharedServices") -> gr.TabItem:
                 gr.update(choices=choices, value=""),  # prompt_select_1
                 gr.update(choices=choices, value=""),  # prompt_select_2
                 gr.update(choices=choices, value=""),  # prompt_select_3
+                gr.update(choices=choices, value=""),  # batch_prompt_select
             )
         
         def on_library_reset():
@@ -608,12 +811,14 @@ def create_tab(services: "SharedServices") -> gr.TabItem:
                 gr.update(choices=choices, value=""),  # prompt_select_1
                 gr.update(choices=choices, value=""),  # prompt_select_2
                 gr.update(choices=choices, value=""),  # prompt_select_3
+                gr.update(choices=choices, value=""),  # batch_prompt_select
             )
         
         # Wire prompt selection (for generation tabs - loads into edit instruction)
         prompt_select_1.change(fn=on_prompt_select, inputs=[prompt_select_1], outputs=[prompt_1])
         prompt_select_2.change(fn=on_prompt_select, inputs=[prompt_select_2], outputs=[prompt_2])
         prompt_select_3.change(fn=on_prompt_select, inputs=[prompt_select_3], outputs=[prompt_3])
+        batch_prompt_select.change(fn=on_prompt_select, inputs=[batch_prompt_select], outputs=[batch_prompt])
         
         # Wire library editor
         library_select.change(
@@ -625,18 +830,18 @@ def create_tab(services: "SharedServices") -> gr.TabItem:
         library_save_btn.click(
             fn=on_library_save,
             inputs=[library_select, library_content, library_name],
-            outputs=[prompt_library_status, library_select, prompt_select_1, prompt_select_2, prompt_select_3, library_name]
+            outputs=[prompt_library_status, library_select, prompt_select_1, prompt_select_2, prompt_select_3, batch_prompt_select, library_name]
         )
         
         library_delete_btn.click(
             fn=on_library_delete,
             inputs=[library_select],
-            outputs=[prompt_library_status, library_select, library_content, library_name, prompt_select_1, prompt_select_2, prompt_select_3]
+            outputs=[prompt_library_status, library_select, library_content, library_name, prompt_select_1, prompt_select_2, prompt_select_3, batch_prompt_select]
         )
         
         library_reset_btn.click(
             fn=on_library_reset,
-            outputs=[prompt_library_status, library_select, library_content, library_name, prompt_select_1, prompt_select_2, prompt_select_3]
+            outputs=[prompt_library_status, library_select, library_content, library_name, prompt_select_1, prompt_select_2, prompt_select_3, batch_prompt_select]
         )
         
         # Edit handlers
@@ -673,6 +878,33 @@ def create_tab(services: "SharedServices") -> gr.TabItem:
         
         generate_3_btn.click(fn=run_edit_3, inputs=[image1_3, image2_3, image3_3, prompt_3] + shared_inputs, outputs=[output_slider, status, seed, result_path])
         stop_3_btn.click(fn=stop_generation, outputs=[status])
+        
+        # Batch edit handler
+        async def run_batch_edit(
+            files, folder, img2, img3, prompt_b,
+            neg, seed_val, rand, steps_val, cfg_val, mp, samp,
+            clip_type, use_gguf, unet, clip, vae, auto, *lora_args
+        ):
+            # auto (autosave) is ignored — batch always saves to timestamped folder
+            async for result in run_edit_batch(
+                services, files, folder, img2, img3, prompt_b,
+                neg, seed_val, rand, steps_val, cfg_val, mp, samp,
+                clip_type, use_gguf, unet, clip, vae, *lora_args
+            ):
+                yield result
+
+        batch_edit_btn.click(
+            fn=run_batch_edit,
+            inputs=[batch_files, batch_folder, batch_image2, batch_image3, batch_prompt] + shared_inputs,
+            outputs=[status, seed, batch_output_folder]
+        )
+
+        def stop_batch():
+            global _cancel_batch
+            _cancel_batch = True
+            return "⏹️ Stopping after current image..."
+
+        batch_stop_btn.click(fn=stop_batch, outputs=[status])
         
         save_btn.click(fn=save_result, inputs=[result_path, prompt_1, prompt_2, prompt_3], outputs=[status])
         
