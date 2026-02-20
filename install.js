@@ -10,7 +10,10 @@ module.exports = {
           "git clone https://github.com/numz/ComfyUI-SeedVR2_VideoUpscaler app/comfyui/custom_nodes/ComfyUI-SeedVR2_VideoUpscaler",
           "git clone https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git app/comfyui/custom_nodes/ComfyUI-VideoHelperSuite",
           "git clone https://github.com/ChangeTheConstants/SeedVarianceEnhancer.git app/comfyui/custom_nodes/SeedVarianceEnhancer",
-          "git clone https://github.com/demon4932/CameraPromptsGenerator.git app/CameraPromptsGenerator"
+          "git clone https://github.com/demon4932/CameraPromptsGenerator.git app/CameraPromptsGenerator",
+          "git clone https://github.com/1038lab/ComfyUI-JoyCaption.git app/comfyui/custom_nodes/ComfyUI-JoyCaption",
+          "git clone https://github.com/cubiq/ComfyUI_essentials.git app/comfyui/custom_nodes/comfyui_essentials",
+          "git clone https://github.com/yolain/ComfyUI-Easy-Use.git app/comfyui/custom_nodes/comfyui-easy-use"
         ]
       }
     },
@@ -42,7 +45,8 @@ module.exports = {
           "uv pip install -r comfyui/requirements.txt",
           "uv pip install -r requirements.txt",
           "uv pip install gguf>=0.13.0 sentencepiece protobuf",
-          "uv pip install einops omegaconf>=2.3.0 diffusers>=0.33.1 peft>=0.17.0 rotary_embedding_torch>=0.5.3 opencv-python matplotlib imageio-ffmpeg"
+          "uv pip install einops omegaconf>=2.3.0 diffusers>=0.33.1 peft>=0.17.0 rotary_embedding_torch>=0.5.3 opencv-python matplotlib imageio-ffmpeg bitsandbytes>=0.42.0 compressed-tensors>=0.6.0",
+          "uv pip install numba colour-science rembg pixeloe transparent-background 'clip_interrogator>=0.6.0' lark opencv-python-headless"
         ]
       }
     },

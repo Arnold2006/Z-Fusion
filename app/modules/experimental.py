@@ -521,6 +521,7 @@ async def experimental_upscale_batch(
 def create_tab(services: "SharedServices") -> gr.TabItem:
     """Create the Experimental tab with sub-tabs for different workflows."""
     from modules.lora_ui import create_lora_ui, setup_lora_handlers, get_lora_inputs
+    from modules.joycaption_ui import create_joycaption_ui, setup_joycaption_handlers
     
     custom_nodes_dir = services.app_dir / "comfyui" / "custom_nodes"
     outputs_dir = services.get_outputs_dir()
@@ -723,10 +724,20 @@ def create_tab(services: "SharedServices") -> gr.TabItem:
                         single_result_state = gr.State(value=None)
                         single_original_state = gr.State(value=None)
                         selected_gallery_image = gr.State(value=None)
+                        
+                        # JoyCaption — uses single tab's input_image as external image
+                        jc = create_joycaption_ui(
+                            accordion_label="🎨 JoyCaption",
+                            accordion_open=False,
+                            show_image_input=False,
+                        )
 
         # ===== EVENT HANDLERS =====
         setup_lora_handlers(lora_components, loras_dir)
         lora_inputs = get_lora_inputs(lora_components)
+        
+        # JoyCaption — uses single tab's input_image as external image source
+        setup_joycaption_handlers(jc, services, external_image=input_image, prompt_target=prompt)
         
         # Install/Update handlers
         def on_install():
