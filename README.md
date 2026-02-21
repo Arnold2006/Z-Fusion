@@ -15,8 +15,10 @@ This project is designed for 1-click installing via [Pinokio](https://pinokio.co
 <td align="center"><b>⚙️ LLM Settings</b></td>
 </tr>
 <tr>
-<td><img src="./app/assets/z-image-tab.png" width="300"/></td>
+<td><img src="./app/assets/image-tab.png" width="300"/></td>
+<td><img src="./app/assets/edit-tab.png" width="300"/></td>
 <td><img src="./app/assets/upscale-tab.png" width="300"/></td>
+<td><img src="./app/assets/experimental-tab.png" width="300"/></td>
 <td><img src="./app/assets/llm-tab.png" width="300"/></td>
 </tr>
 </table>
@@ -25,24 +27,31 @@ This project is designed for 1-click installing via [Pinokio](https://pinokio.co
 <summary>📸 Click to view full-size screenshots</summary>
 
 ### ⚡ Z-Image Turbo Tab
-<img src="./assets/z-image-tab.png" width="800"/>
+<img src="./assets/image-tab.png" width="800"/>
+
+### 🔍 Edit Tab
+<img src="./assets/edit-tab.png" width="800"/>
 
 ### 🔍 Upscale Tab
 <img src="./assets/upscale-tab.png" width="800"/>
 
-### ⚙️ LLM Settings Tab
+### ⚙️ Experimental Upscaler Tab
+<img src="./assets/experimental-tab.png" width="800"/>
+
+### 🔍 LLM Settings Tab
 <img src="./assets/llm-tab.png" width="800"/>
 
 </details>
 
 ## Features
 
-- ⚡ **Z-Image Turbo** - Fast, low-step image generation with the Z-Image 6B distilled model
-- 🖼️ **Txt2Img & Img2Img** - with comfyui node parameters exposed to the UI
-- 🔍 **SeedVR2 4K Upscaler** - High-quality image and video upscaling
-- 🤖 **LLM Prompt Assistant** - AI-powered prompt enhancement and image description
-- 🎨 **LoRA Support** - Apply style/character Z-Image LoRAs
-- ⚙️ **GGUF friendly** - Quantized models for low VRAM
+- **Z-Image** - Image generation with the Z-Image Turbo and Base models
+- **FLUX2 Klein** - Edit and Image gen workflows
+- **Txt2Img & Img2Img** - with comfyui node parameters exposed to the UI
+- **SeedVR2 4K Upscaler** - High-quality image and video upscaling
+- **LLM Prompt Assistants** - Via Joycaption or in-built LLM support
+- **LoRA Support** - Apply style/character Z-Image and Klein LoRAs
+- **GGUF friendly** - Supports quantized models for low VRAM
 
 ## License
 
