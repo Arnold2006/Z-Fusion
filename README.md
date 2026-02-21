@@ -11,17 +11,15 @@ This project is designed for 1-click installing via [Pinokio](https://pinokio.co
 <table>
 <tr>
 <td align="center"><b>⚡ Image</b></td>
-<td align="center"><b>🔍 Edit</b></td>
-<td align="center"><b>⚙️ Upscale</b></td>
-<td align="center"><b>⚙️ Experiments</b></td>
-<td align="center"><b>⚙️ LLM Settings</b></td>
+<td align="center"><b>✏️ Edit</b></td>
+<td align="center"><b>🔍   Upscale</b></td>
+<td align="top"><b>🧪 Experiments</b></td>
 </tr>
 <tr>
 <td><img src="./app/assets/image-tab.png" width="300"/></td>
 <td><img src="./app/assets/edit-tab.png" width="300"/></td>
 <td><img src="./app/assets/upscale-tab.png" width="300"/></td>
 <td><img src="./app/assets/experimental-tab.png" width="300"/></td>
-<td><img src="./app/assets/llm-tab.png" width="300"/></td>
 </tr>
 </table>
 
@@ -29,19 +27,17 @@ This project is designed for 1-click installing via [Pinokio](https://pinokio.co
 <summary>📸 Click to view full-size screenshots</summary>
 
 ### ⚡ Z-Image Turbo Tab
-<img src=".app/assets/image-tab.png" width="800"/>
+<img src="./app/assets/image-tab.png" width="800"/>
 
-### 🔍 Edit Tab
-<img src=".app/assets/edit-tab.png" width="800"/>
+### ✏️ Edit Tab
+<img src="./app/assets/edit-tab.png" width="800"/>
 
 ### 🔍 Upscale Tab
-<img src=".app/assets/upscale-tab.png" width="800"/>
+<img src="./app/assets/upscale-tab.png" width="800"/>
 
-### ⚙️ Experimental Upscaler Tab
-<img src=".app/assets/experimental-tab.png" width="800"/>
+### 🧪 Experimental Upscaler Tab
+<img src="./app/assets/experimental-tab.png" width="800"/>
 
-### 🔍 LLM Settings Tab
-<img src=".app/assets/llm-tab.png" width="800"/>
 
 </details>
 
