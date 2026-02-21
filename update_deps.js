@@ -18,6 +18,7 @@ module.exports = {
           "git -C comfyui/custom_nodes/ComfyUI-JoyCaption pull || git clone https://github.com/1038lab/ComfyUI-JoyCaption.git comfyui/custom_nodes/ComfyUI-JoyCaption",
           "git -C comfyui/custom_nodes/comfyui_essentials pull || git clone https://github.com/cubiq/ComfyUI_essentials.git comfyui/custom_nodes/comfyui_essentials",
           "git -C comfyui/custom_nodes/comfyui-easy-use pull || git clone https://github.com/yolain/ComfyUI-Easy-Use.git comfyui/custom_nodes/comfyui-easy-use",
+          "git -C comfyui/custom_nodes/ComfyUI-EulerDiscreteScheduler pull || git clone https://github.com/erosDiffusion/ComfyUI-EulerDiscreteScheduler.git comfyui/custom_nodes/ComfyUI-EulerDiscreteScheduler",
           "git -C CameraPromptsGenerator pull || git clone https://github.com/demon4932/CameraPromptsGenerator.git CameraPromptsGenerator"
         ]
       }

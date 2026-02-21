@@ -36,11 +36,7 @@ TAB_ID = "experimental"
 TAB_LABEL = "🧪 Experimental"
 TAB_ORDER = 2
 
-# Custom node configuration
-CUSTOM_NODE_NAME = "ComfyUI-EulerDiscreteScheduler"
-CUSTOM_NODE_REPO = "https://github.com/erosDiffusion/ComfyUI-EulerDiscreteScheduler.git"
-
-# Status message constants
+# Status message constantsatus message constants
 STATUS_UPSCALING = "⏳ Enhancing..."
 STATUS_SUCCESS_PREFIX = "✓"
 STATUS_ERROR_PREFIX = "❌"
@@ -174,51 +170,6 @@ def get_batch_images(batch_files: Optional[List], folder_path: str) -> List[str]
     return images
 
 
-def check_custom_node_installed(custom_nodes_dir: Path, node_name: str) -> bool:
-    node_path = custom_nodes_dir / node_name
-    return node_path.exists() and node_path.is_dir()
-
-
-def install_custom_node(custom_nodes_dir: Path, repo_url: str, node_name: str) -> tuple[bool, str]:
-    node_path = custom_nodes_dir / node_name
-    if node_path.exists():
-        return False, f"Custom node '{node_name}' already exists"
-    try:
-        custom_nodes_dir.mkdir(parents=True, exist_ok=True)
-        result = subprocess.run(
-            ["git", "clone", repo_url, str(node_path)],
-            capture_output=True, text=True, timeout=120
-        )
-        if result.returncode != 0:
-            error_msg = result.stderr.strip() or result.stdout.strip() or "Unknown error"
-            return False, f"Failed to clone: {error_msg}"
-        return True, f"✓ Installed '{node_name}'. Please stop and restart app to load the node."
-    except subprocess.TimeoutExpired:
-        return False, "Installation timed out. Check your network connection."
-    except FileNotFoundError:
-        return False, "Git is not installed or not in PATH"
-    except Exception as e:
-        return False, f"Installation failed: {str(e)}"
-
-
-def update_custom_node(custom_nodes_dir: Path, node_name: str) -> tuple[bool, str]:
-    node_path = custom_nodes_dir / node_name
-    if not node_path.exists():
-        return False, f"Custom node '{node_name}' is not installed"
-    try:
-        result = subprocess.run(
-            ["git", "pull"], cwd=str(node_path),
-            capture_output=True, text=True, timeout=60
-        )
-        if result.returncode != 0:
-            return False, f"Failed to update: {result.stderr.strip() or 'Unknown error'}"
-        if "Already up to date" in result.stdout:
-            return True, f"✓ '{node_name}' is already up to date"
-        return True, f"✓ Updated '{node_name}'. Please stop and restart app to load the node."
-    except subprocess.TimeoutExpired:
-        return False, "Update timed out."
-    except Exception as e:
-        return False, f"Update failed: {str(e)}"
 
 
 async def download_image_from_url(url: str) -> str:
@@ -725,7 +676,6 @@ def create_tab(services: "SharedServices") -> gr.TabItem:
     from modules.model_ui import create_model_ui, setup_model_handlers, create_quick_preset_selector
     from modules.upscale import SEEDVR2_DIT_MODELS, get_seedvr2_max_blocks, get_device_params
 
-    custom_nodes_dir = services.app_dir / "comfyui" / "custom_nodes"
     outputs_dir = services.get_outputs_dir()
 
     # Model directories
@@ -744,8 +694,6 @@ def create_tab(services: "SharedServices") -> gr.TabItem:
     clip_models = get_models_by_mode(text_encoders_dir, default_gguf_mode, DEFAULT_CLIP, DEFAULT_CLIP_GGUF, ZIMAGE_FILTERS["text_encoder"])
     vae_models = scan_models(vae_dir, STANDARD_EXTENSIONS, ZIMAGE_FILTERS["vae"]) or [DEFAULT_VAE]
 
-    is_installed = check_custom_node_installed(custom_nodes_dir, CUSTOM_NODE_NAME)
-
     # Fetch samplers from ComfyUI
     samplers = DEFAULT_SAMPLERS.copy()
     try:
@@ -760,11 +708,7 @@ def create_tab(services: "SharedServices") -> gr.TabItem:
         pass
 
     with gr.TabItem(TAB_LABEL, id=TAB_ID) as tab:
-        gr.Markdown("## 🧪 Experimental Workflows")
-        gr.Markdown(
-            "⚠️ ZimageEnhance requires custom node installation, please see Custom Node Status below.",
-            visible=not is_installed
-        )
+        gr.Markdown("## 🧪 Experimental Upscalers")
 
         with gr.Row():
             # ===== LEFT COLUMN =====
@@ -866,16 +810,6 @@ def create_tab(services: "SharedServices") -> gr.TabItem:
                                                     value=get_default_model(clip_models, default_te))
                             vae_name = gr.Dropdown(label="VAE", choices=vae_models,
                                                    value=get_default_model(vae_models, DEFAULT_VAE))
-
-                    with gr.Accordion("📦 Custom Node Status", open=True, elem_id="install-section"):
-                        node_status = gr.Textbox(
-                            label="ComfyUI-EulerDiscreteScheduler",
-                            value="✓ Installed" if is_installed else "⚠️ Not installed - Required for ZimageEnhance",
-                            interactive=False
-                        )
-                        with gr.Row():
-                            install_btn = gr.Button("📥 Install", visible=not is_installed, variant="primary")
-                            update_btn = gr.Button("🔄 Update", visible=is_installed)
 
 
                 # ===== Klein-Tiled-SeedVR2 Accordion =====
@@ -1024,16 +958,6 @@ def create_tab(services: "SharedServices") -> gr.TabItem:
             inputs=[workflow_radio, prompt],
             outputs=[upscaleany_accordion, klein_accordion, upscaleany_seed_row, klein_seed_row, prompt]
         )
-
-        # Install/Update handlers
-        def on_install():
-            success, msg = install_custom_node(custom_nodes_dir, CUSTOM_NODE_REPO, CUSTOM_NODE_NAME)
-            if success:
-                return msg, gr.update(visible=False), gr.update(visible=True)
-            return msg, gr.update(), gr.update()
-
-        install_btn.click(fn=on_install, outputs=[node_status, install_btn, update_btn])
-        update_btn.click(fn=lambda: update_custom_node(custom_nodes_dir, CUSTOM_NODE_NAME)[1], outputs=[node_status])
 
         # UpscaleAny: step range update
         def update_step_ranges(steps_val):

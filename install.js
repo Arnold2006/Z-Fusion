@@ -13,7 +13,8 @@ module.exports = {
           "git clone https://github.com/demon4932/CameraPromptsGenerator.git app/CameraPromptsGenerator",
           "git clone https://github.com/1038lab/ComfyUI-JoyCaption.git app/comfyui/custom_nodes/ComfyUI-JoyCaption",
           "git clone https://github.com/cubiq/ComfyUI_essentials.git app/comfyui/custom_nodes/comfyui_essentials",
-          "git clone https://github.com/yolain/ComfyUI-Easy-Use.git app/comfyui/custom_nodes/comfyui-easy-use"
+          "git clone https://github.com/yolain/ComfyUI-Easy-Use.git app/comfyui/custom_nodes/comfyui-easy-use",
+          "git clone https://github.com/erosDiffusion/ComfyUI-EulerDiscreteScheduler.git app/comfyui/custom_nodes/ComfyUI-EulerDiscreteScheduler"
         ]
       }
     },

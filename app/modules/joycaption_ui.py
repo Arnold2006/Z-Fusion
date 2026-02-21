@@ -229,7 +229,7 @@ def create_joycaption_ui(
             memory_mode = gr.Dropdown(
                 label="Memory Management",
                 choices=MEMORY_MODES,
-                value="Keep in Memory",
+                value="Clear After Run",
                 info="'Keep in Memory' = faster repeated runs; 'Clear After Run' = frees VRAM after each caption",
             )
 
