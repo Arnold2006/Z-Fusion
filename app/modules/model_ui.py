@@ -58,6 +58,8 @@ class BaseModelType:
     default_diffusion: str
     default_te: str
     default_vae: str
+    # Optional secondary diffusion default (tried if default_diffusion not found)
+    default_diffusion2: str = ""
     
     # Default model filenames (GGUF mode)
     default_diffusion_gguf: str = ""
@@ -113,7 +115,8 @@ BASE_MODEL_TYPES = {
         id="flux2_klein_9b",
         label="Flux2 Klein 9B",
         clip_type="flux2",
-        default_diffusion="flux-2-klein-9b-fp8.safetensors",
+        default_diffusion="flux-2-klein-9b.safetensors",
+        default_diffusion2="flux-2-klein-9b-fp8.safetensors",
         default_te="qwen_3_8b_fp8mixed.safetensors",
         default_vae="flux2-vae.safetensors",
         default_diffusion_gguf="flux-2-klein-9b-Q4_K_M.gguf",
@@ -240,6 +243,15 @@ def load_user_presets(settings_manager) -> tuple[list[UserPreset], str]:
             if dp.id not in existing_default_ids:
                 presets.append(dp)
                 logger.info(f"Added missing default preset: {dp.name}")
+            else:
+                # Refresh default preset fields that come from BASE_MODEL_TYPES
+                # (handles cases where defaults changed, e.g. diffusion filename update)
+                for p in presets:
+                    if p.id == dp.id:
+                        p.diffusion = dp.diffusion
+                        p.text_encoder = dp.text_encoder
+                        p.vae = dp.vae
+                        break
     
     # Validate active_id exists
     if active_id and not any(p.id == active_id for p in presets):
@@ -476,13 +488,13 @@ def get_individual_button_labels(base_type_id: str, is_gguf: bool) -> tuple[str,
 # =============================================================================
 
 def scan_models(folder: Path, extensions: tuple = ALL_MODEL_EXTENSIONS, name_filter: str = None) -> list:
-    """Scan folder recursively for model files, returning relative paths."""
+    """Scan folder recursively for model files, returning relative paths (forward slashes)."""
     if not folder.exists():
         return []
     models = []
     for ext in extensions:
         for f in folder.rglob(f"*{ext}"):
-            rel_path = str(f.relative_to(folder))
+            rel_path = f.relative_to(folder).as_posix()  # always forward slashes
             if name_filter is None or name_filter.lower() in rel_path.lower():
                 models.append(rel_path)
     return sorted(models)
@@ -494,10 +506,47 @@ def get_models_by_mode(folder: Path, is_gguf: bool) -> list:
     return scan_models(folder, extensions)
 
 
-def get_default_model(choices: list, preferred: str) -> str | None:
-    """Get default model, returning preferred if available, otherwise None."""
-    if preferred in choices:
-        return preferred
+def get_default_model(choices: list, preferred: str, fallbacks: list = None) -> str | None:
+    """Get default model from choices.
+    
+    Match priority:
+    1. Exact filename match for preferred
+    2. Exact stem match for preferred (handles extension differences)
+    3. Repeat 1+2 for each entry in fallbacks list
+    4. None — never silently picks a wrong model
+    """
+    if not choices:
+        return None
+
+    def _normalise(name: str) -> str:
+        """Normalise path separators for cross-platform comparison."""
+        return name.replace("\\", "/") if name else ""
+
+    norm_choices = [_normalise(c) for c in choices]
+
+    def _match(name: str) -> str | None:
+        if not name:
+            return None
+        norm_name = _normalise(name)
+        # Exact match
+        if norm_name in norm_choices:
+            return choices[norm_choices.index(norm_name)]
+        # Exact stem match (handles extension differences)
+        stem = norm_name.rsplit(".", 1)[0].lower()
+        for i, c in enumerate(norm_choices):
+            if c.rsplit(".", 1)[0].lower() == stem:
+                return choices[i]
+        return None
+
+    result = _match(preferred)
+    if result:
+        return result
+
+    for fb in (fallbacks or []):
+        result = _match(fb)
+        if result:
+            return result
+
     return None
 
 
@@ -803,7 +852,7 @@ def create_model_ui(
     if edit_only:
         base = BASE_MODEL_TYPES.get(base_type)
         if not base or not base.supports_edit:
-            # Default to first edit-compatible base type
+            # Active preset isn't edit-compatible — fall back to first that is
             for bid in BASE_TYPE_ORDER:
                 if BASE_MODEL_TYPES[bid].supports_edit:
                     base_type = bid
@@ -849,10 +898,12 @@ def create_model_ui(
             )
         
         # Model dropdowns
+        _active_base = BASE_MODEL_TYPES.get(active_preset.base_type if active_preset else "zimage", BASE_MODEL_TYPES["zimage"])
+        _diff_fallbacks = [_active_base.default_diffusion2] if (active_preset and not active_preset.use_gguf and _active_base.default_diffusion2) else []
         unet_name = gr.Dropdown(
             label="Diffusion Model",
             choices=diff_models,
-            value=get_default_model(diff_models, active_preset.diffusion if active_preset else ""),
+            value=get_default_model(diff_models, active_preset.diffusion if active_preset else "", _diff_fallbacks),
             allow_custom_value=True
         )
         clip_name = gr.Dropdown(
@@ -1147,9 +1198,11 @@ def setup_model_handlers(
         # Get suggested defaults for this base type
         if is_gguf:
             diff_default = base.default_diffusion_gguf
+            diff_fallback = []
             te_default = base.default_te_gguf
         else:
             diff_default = base.default_diffusion
+            diff_fallback = [base.default_diffusion2] if base.default_diffusion2 else []
             te_default = base.default_te
         vae_default = base.default_vae
         
@@ -1171,7 +1224,7 @@ def setup_model_handlers(
         show_note = (base_type_id == "flux2_klein_9b")
         
         return (
-            gr.update(choices=diff_models, value=get_default_model(diff_models, diff_default)),
+            gr.update(choices=diff_models, value=get_default_model(diff_models, diff_default, diff_fallback)),
             gr.update(choices=te_models, value=get_default_model(te_models, te_default)),
             gr.update(choices=vae_models, value=get_default_model(vae_models, vae_default)),
             base.clip_type,
@@ -1209,9 +1262,11 @@ def setup_model_handlers(
         
         if is_gguf:
             diff_default = base.default_diffusion_gguf
+            diff_fallback = []
             te_default = base.default_te_gguf
         else:
             diff_default = base.default_diffusion
+            diff_fallback = [base.default_diffusion2] if base.default_diffusion2 else []
             te_default = base.default_te
         vae_default = base.default_vae
         
@@ -1229,7 +1284,7 @@ def setup_model_handlers(
         bf16_label = f"⬇️ Download BF16 GGUF ({bf16_size:.0f}GB)" if show_bf16 else "⬇️ BF16 GGUF"
         
         return (
-            gr.update(choices=diff_models, value=get_default_model(diff_models, diff_default)),
+            gr.update(choices=diff_models, value=get_default_model(diff_models, diff_default, diff_fallback)),
             gr.update(choices=te_models, value=get_default_model(te_models, te_default)),
             gr.update(choices=vae_models, value=get_default_model(vae_models, vae_default)),
             gr.update(value=main_btn_label),
@@ -1272,6 +1327,8 @@ def setup_model_handlers(
             return (
                 presets_data,
                 gr.update(),
+                gr.update(),  # clip_type_state unchanged
+                gr.update(),  # preset_name_input unchanged
                 "❌ Please enter a preset name",
             )
         

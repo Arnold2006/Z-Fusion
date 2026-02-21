@@ -28,6 +28,8 @@ from modules.model_ui import (
     validate_models,
 )
 
+from modules.joycaption_ui import create_joycaption_ui, setup_joycaption_handlers
+
 if TYPE_CHECKING:
     from modules import SharedServices
 
@@ -808,6 +810,14 @@ def create_tab(services: "SharedServices") -> gr.TabItem:
                 # System monitor (UI only - timer is shared in app.py)
                 from modules.system_monitor_ui import create_monitor_textboxes
                 gpu_monitor, cpu_monitor = create_monitor_textboxes()
+
+                # JoyCaption — image captioning accordion
+                # show_image_input=True: zimage has no single shared image, so include the input
+                jc = create_joycaption_ui(
+                    accordion_label="🎨 JoyCaption",
+                    accordion_open=False,
+                    show_image_input=True,
+                )
                 
                 # Image metadata reader
                 with gr.Accordion("🔍 Read Image Metadata", open=False):
@@ -922,6 +932,8 @@ Distilled "turbo" models can produce similar images across different seeds, espe
             meta_to_prompt_btn=meta_to_prompt_btn,
             meta_to_settings_btn=meta_to_settings_btn,
             open_camera_prompts_btn=open_camera_prompts_btn,
+            # JoyCaption
+            jc=jc,
             # Directories
             loras_dir=loras_dir,
             # Valid options for metadata apply
@@ -1003,6 +1015,18 @@ def _setup_event_handlers(
     
     # Set up model handlers using model_ui module
     setup_model_handlers(model_components, services.models_dir, settings_manager=services.settings)
+    
+    # Set up JoyCaption handlers (standalone image input — show_image_input=True)
+    jc = components.get("jc")
+    if jc is not None:
+        setup_joycaption_handlers(jc, services, prompt_target=components["prompt"])
+        # Sync i2i input_image → jc.image so captioning reflects the loaded image
+        input_image = components["input_image"]
+        input_image.change(
+            fn=lambda img: img,
+            inputs=[input_image],
+            outputs=[jc.image],
+        )
     
     # Prompt Enhance button - outputs to gen_status
     if services.prompt_assistant:

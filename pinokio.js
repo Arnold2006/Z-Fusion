@@ -8,8 +8,7 @@ module.exports = {
     let running = {
       install: info.running("install.js"),
       start: info.running("start.js"),
-      update: info.running("update.js"),
-      quick_update: info.running("quick_update.js"), // Added tracking
+      update: info.running("update.js") || info.running("_update_steps.js"),
       reset: info.running("reset.js"),
     }
 
@@ -28,8 +27,12 @@ module.exports = {
           return [{
             default: true,
             icon: "fa-solid fa-rocket",
-            text: "Open Web UI",
+            text: "Open Z-Fusion",
             href: local.url + "?ts=" + Date.now(),
+          }, {
+            icon: "fa-solid fa-diagram-project",
+            text: "Open ComfyUI",
+            href: "http://127.0.0.1:8188",
           }, {
             icon: "fa-solid fa-terminal",
             text: "Terminal",
@@ -44,13 +47,13 @@ module.exports = {
           }]
         }
       } 
-      // Handle either update script running
-      else if (running.update || running.quick_update) {
+      // Handle update running
+      else if (running.update) {
         return [{
           default: true,
           icon: "fa-solid fa-terminal",
           text: "Updating",
-          href: running.update ? "update.js" : "quick_update.js",
+          href: "update.js",
         }]
       } 
       else if (running.reset) {
@@ -80,18 +83,9 @@ module.exports = {
             href: "start.js?flash=true&ts=" + Date.now(),
           }],  
         }, {
-          // Consolidated Update Menu
           icon: "fa-solid fa-plug",
           text: "Update",
-          menu: [{
-            icon: "fa-solid fa-bolt",
-            text: "Quick Update (Git Pull only)",
-            href: "quick_update.js",
-          }, {
-            icon: "fa-solid fa-plug",
-            text: "Full Update (Everything)",
-            href: "update.js",
-          }]
+          href: "update.js",
         }, {
           icon: "fa-solid fa-plug",
           text: "Install",
