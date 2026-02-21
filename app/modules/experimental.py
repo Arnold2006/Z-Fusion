@@ -814,6 +814,11 @@ def create_tab(services: "SharedServices") -> gr.TabItem:
 
                 # ===== Klein-Tiled-SeedVR2 Accordion =====
                 with gr.Accordion("🌊 Klein-Tiled-SeedVR2 Settings", open=True, visible=False) as klein_accordion:
+                    gr.Markdown(
+                        "💡 *Default prompt and settings are optimised for best results. "
+                        "For quality output, be sure to use a **Klein 9B** diffusion model (fp16 or fp8) and a **SeedVR2 7B** model — "
+                        "Q8 GGUF variants are acceptable also.*"
+                    )
                     with gr.Row():
                         klein_megapixels = gr.Slider(label="Megapixels", value=1.0, minimum=0.5, maximum=2.0, step=0.1,
                                                      info="Pre-scale input before Klein pass")
@@ -830,7 +835,7 @@ def create_tab(services: "SharedServices") -> gr.TabItem:
                         )
 
                     with gr.Accordion("🔧 SeedVR2 Settings", open=False):
-                        initial_dit = "seedvr2_ema_3b-Q4_K_M.gguf"
+                        initial_dit = "seedvr2_ema_7b_fp8_e4m3fn_mixed_block35_fp16.safetensors"
                         initial_max_blocks = 32
                         klein_dit_model = gr.Dropdown(
                             label="DIT Model",
