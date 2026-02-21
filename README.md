@@ -8,36 +8,27 @@ This project is designed for 1-click installing via [Pinokio](https://pinokio.co
 
 ## Screenshots
 
-<table>
-<tr>
-<td align="center"><b>⚡ Image</b></td>
-<td align="center"><b>✏️ Edit</b></td>
-<td align="center"><b>🔍   Upscale</b></td>
-<td align="top"><b>🧪 Experiments</b></td>
-</tr>
-<tr>
-<td><img src="./app/assets/image-tab.png" width="300"/></td>
-<td><img src="./app/assets/edit-tab.png" width="300"/></td>
-<td><img src="./app/assets/upscale-tab.png" width="300"/></td>
-<td><img src="./app/assets/experimental-tab.png" width="300"/></td>
-</tr>
-</table>
-
 <details>
-<summary>📸 Click to view full-size screenshots</summary>
+<summary>📸 Click to view screenshots</summary>
 
-### ⚡ Z-Image Turbo Tab
-<img src="./app/assets/image-tab.png" width="800"/>
+<br>
 
-### ✏️ Edit Tab
-<img src="./app/assets/edit-tab.png" width="800"/>
+| [⚡ Image](#-image) | [✏️ Edit](#️-edit) | [🔍 Upscale](#-upscale) | [🧪 Experimental](#-experimental) |
+|:---:|:---:|:---:|:---:|
 
-### 🔍 Upscale Tab
-<img src="./app/assets/upscale-tab.png" width="800"/>
+---
 
-### 🧪 Experimental Upscaler Tab
-<img src="./app/assets/experimental-tab.png" width="800"/>
+#### ⚡ Image
+<img src="./app/assets/image-tab.png" width="900"/>
 
+#### ✏️ Edit
+<img src="./app/assets/edit-tab.png" width="900"/>
+
+#### 🔍 Upscale
+<img src="./app/assets/upscale-tab.png" width="900"/>
+
+#### 🧪 Experimental
+<img src="./app/assets/experimental-tab.png" width="900"/>
 
 </details>
 
