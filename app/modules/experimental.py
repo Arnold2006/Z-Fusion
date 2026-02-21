@@ -467,6 +467,7 @@ async def klein_seedvr2_single(
     steps: int,
     denoise: float,
     scheduler: str,
+    s_noise: float,
     use_gguf: bool,
     unet_name: str,
     clip_name: str,
@@ -498,6 +499,7 @@ async def klein_seedvr2_single(
         "steps": int(steps),
         "denoise": float(denoise),
         "scheduler": scheduler,
+        "s_noise": float(s_noise),
         "unet_name": unet_name,
         "clip_name": clip_name,
         "vae_name": vae_name,
@@ -538,6 +540,7 @@ async def run_klein_seedvr2(
     steps: int,
     denoise: float,
     scheduler: str,
+    s_noise: float,
     use_gguf: bool,
     unet_name: str,
     clip_name: str,
@@ -575,7 +578,7 @@ async def run_klein_seedvr2(
 
     result_path, status_msg, duration = await klein_seedvr2_single(
         services, input_image, prompt, actual_seed, megapixels, steps, denoise,
-        scheduler, use_gguf, unet_name, clip_name, vae_name,
+        scheduler, s_noise, use_gguf, unet_name, clip_name, vae_name,
         dit_model, blocks_to_swap, attention_mode, color_correction, lora_params
     )
 
@@ -597,6 +600,7 @@ async def run_klein_seedvr2_batch(
     steps: int,
     denoise: float,
     scheduler: str,
+    s_noise: float,
     use_gguf: bool,
     unet_name: str,
     clip_name: str,
@@ -648,7 +652,7 @@ async def run_klein_seedvr2_batch(
 
         result_path, status_msg, duration = await klein_seedvr2_single(
             services, img_path, prompt, current_seed, megapixels, steps, denoise,
-            scheduler, use_gguf, unet_name, clip_name, vae_name,
+            scheduler, s_noise, use_gguf, unet_name, clip_name, vae_name,
             dit_model, blocks_to_swap, attention_mode, color_correction, lora_params
         )
 
@@ -833,6 +837,14 @@ def create_tab(services: "SharedServices") -> gr.TabItem:
                             choices=KLEIN_SCHEDULERS,
                             value="sgm_uniform"
                         )
+                        klein_s_noise = gr.Slider(
+                            label="S Noise",
+                            value=1.1,
+                            minimum=1.0,
+                            maximum=1.3,
+                            step=0.02,
+                            info="Ancestral sampler noise scale"
+                        )
 
                     with gr.Accordion("🔧 SeedVR2 Settings", open=False):
                         initial_dit = "seedvr2_ema_7b_fp8_e4m3fn_mixed_block35_fp16.safetensors"
@@ -1016,14 +1028,14 @@ def create_tab(services: "SharedServices") -> gr.TabItem:
             mp, scale, steps_val, start_step, end_step, shift_val, cfg_val, sampler,
             is_gguf, unet, clip, vae, base_shift_val, max_shift_val, karras, stochastic, auto,
             # Klein params
-            k_mp, k_steps, k_denoise, k_scheduler,
+            k_mp, k_steps, k_denoise, k_scheduler, k_s_noise,
             k_unet, k_clip, k_vae, k_dit, k_blocks, k_attn, k_color,
             *lora_args
         ):
             if workflow == "Klein-Tiled-SeedVR2":
                 async for result in run_klein_seedvr2(
                     services, img, prompt_text, klein_seed_val, klein_randomize,
-                    k_mp, k_steps, k_denoise, k_scheduler, False,
+                    k_mp, k_steps, k_denoise, k_scheduler, k_s_noise, False,
                     k_unet, k_clip, k_vae, k_dit, k_blocks, k_attn, k_color,
                     *lora_args
                 ):
@@ -1048,14 +1060,14 @@ def create_tab(services: "SharedServices") -> gr.TabItem:
             mp, scale, steps_val, start_step, end_step, shift_val, cfg_val, sampler,
             is_gguf, unet, clip, vae, base_shift_val, max_shift_val, karras, stochastic, auto,
             # Klein params
-            k_mp, k_steps, k_denoise, k_scheduler,
+            k_mp, k_steps, k_denoise, k_scheduler, k_s_noise,
             k_unet, k_clip, k_vae, k_dit, k_blocks, k_attn, k_color,
             *lora_args
         ):
             if workflow == "Klein-Tiled-SeedVR2":
                 async for result in run_klein_seedvr2_batch(
                     services, files, folder, prompt_text, klein_seed_val, klein_randomize,
-                    k_mp, k_steps, k_denoise, k_scheduler, False,
+                    k_mp, k_steps, k_denoise, k_scheduler, k_s_noise, False,
                     k_unet, k_clip, k_vae, k_dit, k_blocks, k_attn, k_color,
                     *lora_args
                 ):
@@ -1079,7 +1091,7 @@ def create_tab(services: "SharedServices") -> gr.TabItem:
         ]
         # klein_unet/clip/vae come from model_ui dropdowns; use_gguf handled by model_ui preset
         klein_inputs = [
-            klein_megapixels, klein_steps, klein_denoise, klein_scheduler,
+            klein_megapixels, klein_steps, klein_denoise, klein_scheduler, klein_s_noise,
             klein_unet_name, klein_clip_name, klein_vae_name,
             klein_dit_model, klein_blocks_to_swap, klein_attention_mode, klein_color_correction,
         ]

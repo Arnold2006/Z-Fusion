@@ -170,7 +170,7 @@
     },
     "class_type": "SamplerEulerAncestralCFGPP",
     "_meta": {
-      "title": "SamplerEulerAncestralCFG++"
+      "title": "$s_noise.s_noise"
     }
   },
   "120": {
@@ -202,7 +202,7 @@
     },
     "class_type": "ImageTile+",
     "_meta": {
-      "title": "🔧 Image Tile"
+      "title": "Image Tile"
     }
   },
   "124": {
@@ -388,7 +388,7 @@
     },
     "class_type": "ImageResize+",
     "_meta": {
-      "title": "🔧 Image Resize"
+      "title": "Image Resize"
     }
   },
   "141": {
@@ -416,7 +416,7 @@
     },
     "class_type": "ImageUntile+",
     "_meta": {
-      "title": "🔧 Image Untile"
+      "title": "Image Untile"
     }
   },
   "175": {
