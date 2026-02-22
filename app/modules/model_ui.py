@@ -488,13 +488,13 @@ def get_individual_button_labels(base_type_id: str, is_gguf: bool) -> tuple[str,
 # =============================================================================
 
 def scan_models(folder: Path, extensions: tuple = ALL_MODEL_EXTENSIONS, name_filter: str = None) -> list:
-    """Scan folder recursively for model files, returning relative paths (forward slashes)."""
+    """Scan folder recursively for model files, returning relative paths."""
     if not folder.exists():
         return []
     models = []
     for ext in extensions:
         for f in folder.rglob(f"*{ext}"):
-            rel_path = f.relative_to(folder).as_posix()  # always forward slashes
+            rel_path = str(f.relative_to(folder))
             if name_filter is None or name_filter.lower() in rel_path.lower():
                 models.append(rel_path)
     return sorted(models)
@@ -508,7 +508,7 @@ def get_models_by_mode(folder: Path, is_gguf: bool) -> list:
 
 def get_default_model(choices: list, preferred: str, fallbacks: list = None) -> str | None:
     """Get default model from choices.
-    
+
     Match priority:
     1. Exact filename match for preferred
     2. Exact stem match for preferred (handles extension differences)
@@ -518,24 +518,15 @@ def get_default_model(choices: list, preferred: str, fallbacks: list = None) -> 
     if not choices:
         return None
 
-    def _normalise(name: str) -> str:
-        """Normalise path separators for cross-platform comparison."""
-        return name.replace("\\", "/") if name else ""
-
-    norm_choices = [_normalise(c) for c in choices]
-
     def _match(name: str) -> str | None:
         if not name:
             return None
-        norm_name = _normalise(name)
-        # Exact match
-        if norm_name in norm_choices:
-            return choices[norm_choices.index(norm_name)]
-        # Exact stem match (handles extension differences)
-        stem = norm_name.rsplit(".", 1)[0].lower()
-        for i, c in enumerate(norm_choices):
+        if name in choices:
+            return name
+        stem = name.rsplit(".", 1)[0].lower()
+        for c in choices:
             if c.rsplit(".", 1)[0].lower() == stem:
-                return choices[i]
+                return c
         return None
 
     result = _match(preferred)
