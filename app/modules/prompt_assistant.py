@@ -186,7 +186,7 @@ class QwenPromptExpander:
             return self._run_vision(prompt, system_prompt, image, seed, **kwargs)
         return self._run_text(prompt, system_prompt, seed, **kwargs)
 
-    def _run_text(self, prompt, system_prompt, seed, temperature=0.7, max_new_tokens=1024):
+    def _run_text(self, prompt, system_prompt, seed, temperature=0.7, max_new_tokens=1024, truncation=True):
         if seed < 0: seed = random.randint(0, sys.maxsize)
         try:
             self.model = self.model.to(self.device)
@@ -200,7 +200,7 @@ class QwenPromptExpander:
             if self.is_vl:
                 messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": prompt}]
                 text = self.processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-                inputs = self.processor(text=[text], padding=False, return_tensors="pt").to(self.device)
+                inputs = self.processor(text=[text], padding=False, return_tensors="pt", truncation=truncation).to(self.device)
                 
                 generated_ids = self.model.generate(**inputs, **gen_kwargs)
                 generated_ids_trimmed = [
@@ -210,7 +210,7 @@ class QwenPromptExpander:
             else:
                 messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": prompt}]
                 text = self.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-                inputs = self.tokenizer([text], return_tensors="pt").to(self.model.device)
+                inputs = self.tokenizer([text], return_tensors="pt", truncation=truncation).to(self.model.device)
 
                 generated_ids = self.model.generate(**inputs, **gen_kwargs)
                 generated_ids_trimmed = [
@@ -227,7 +227,7 @@ class QwenPromptExpander:
             self.model = self.model.to("cpu")
             safe_empty_cache()
 
-    def _run_vision(self, prompt, system_prompt, image, seed, temperature=0.7, max_new_tokens=512):
+    def _run_vision(self, prompt, system_prompt, image, seed, temperature=0.7, max_new_tokens=512, truncation=True):
         if not self.is_vl:
             return PromptOutput(False, prompt, "Selected model is not Vision Capable.")
 
@@ -253,8 +253,7 @@ class QwenPromptExpander:
                 
             image_inputs, video_inputs = self.process_vision_info(messages)
             inputs = self.processor(
-                text=[text], images=image_inputs, videos=video_inputs, padding=False, return_tensors="pt"
-            ).to(self.device)
+                text=[text], images=image_inputs, videos=video_inputs, padding=False, return_tensors="pt", truncation=truncation).to(self.device)
 
             generated_ids = self.model.generate(**inputs, **gen_kwargs)
             generated_ids_trimmed = [
