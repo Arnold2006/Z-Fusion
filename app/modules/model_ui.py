@@ -387,7 +387,7 @@ MODEL_DOWNLOADS = {
     # Qwen3 8B TE Standard (for Flux2 Klein 9B)
     "flux2_te_8b_bf16": {
         "repo_id": "Comfy-Org/vae-text-encorder-for-flux-klein-9b",
-        "filename": "text_encoders/qwen_3_8b_fp8mixed.safetensors",
+        "filename": "split_files/text_encoders/qwen_3_8b_fp8mixed.safetensors",
         "local_name": "qwen_3_8b_fp8mixed.safetensors",
         "folder_key": "text_encoder",
         "label": "Qwen3 8B TE (fp8)",
