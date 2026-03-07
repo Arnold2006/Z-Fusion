@@ -4,9 +4,13 @@
       "images": [
         "43",
         0
+      ],
+      "resolved_prompt": [
+        "45",
+        1
       ]
     },
-    "class_type": "PreviewImage",
+    "class_type": "PreviewImageWithMeta",
     "_meta": {
       "title": "$output.result"
     }

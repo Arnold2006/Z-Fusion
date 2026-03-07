@@ -163,6 +163,7 @@ def extract_png_metadata(image_path: str) -> dict:
     
     result = {
         "prompt_text": "",
+        "resolved_prompt": None,
         "params": {},
         "raw_prompt": None,
         "raw_workflow": None,
@@ -179,7 +180,7 @@ def extract_png_metadata(image_path: str) -> dict:
             # Get raw metadata
             raw_prompt = img.info.get("prompt")
             raw_workflow = img.info.get("workflow")
-            
+
             if raw_prompt:
                 result["raw_prompt"] = raw_prompt
                 try:
@@ -238,7 +239,21 @@ def extract_png_metadata(image_path: str) -> dict:
                                 
                 except json.JSONDecodeError:
                     result["error"] = "Could not parse prompt metadata"
-            
+
+            # extra_pnginfo values are written by SaveImage as json.dumps(value),
+            # so a plain string like "a cat" is stored as the JSON string '"a cat"'
+            # (with wrapping quotes). We must json.loads() to unwrap it.
+            raw_resolved = img.info.get("resolved_prompt")
+            if raw_resolved:
+                try:
+                    resolved = json.loads(raw_resolved)
+                except (json.JSONDecodeError, TypeError):
+                    resolved = raw_resolved
+                # Only store if it differs from the template prompt — if no wildcards
+                # were expanded, they'll be identical and there's nothing useful to show.
+                if resolved != result["prompt_text"]:
+                    result["resolved_prompt"] = resolved
+                    
             if raw_workflow:
                 result["raw_workflow"] = raw_workflow
             
@@ -260,7 +275,10 @@ def format_metadata_display(metadata: dict) -> str:
     
     if metadata.get("prompt_text"):
         lines.append(f"📝 Prompt:\n{metadata['prompt_text']}\n")
-    
+
+    if metadata.get("resolved_prompt"):
+        lines.append(f"📝 Resolved Prompt:\n{metadata['resolved_prompt']}\n")
+
     params = metadata.get("params", {})
     if params:
         lines.append("⚙️ Settings:")

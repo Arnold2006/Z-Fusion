@@ -25,8 +25,9 @@ module.exports = {
     },
 
     // Ensure custom wildcard node files are in place
+    // We've updated this custom node, so copying in updated file
     {
-      when: "{{!exists('app/comfyui/custom_nodes/z-image-wildcards/__init__.py')}}",
+      // when: "{{!exists('app/comfyui/custom_nodes/z-image-wildcards/__init__.py')}}",
       method: "fs.copy",
       params: {
         src: "app/custom_nodes/z-image-wildcards/__init__.py",
@@ -34,7 +35,7 @@ module.exports = {
       }
     },
     {
-      when: "{{!exists('app/comfyui/custom_nodes/z-image-wildcards/wildcards_node.py')}}",
+      // when: "{{!exists('app/comfyui/custom_nodes/z-image-wildcards/wildcards_node.py')}}",
       method: "fs.copy",
       params: {
         src: "app/custom_nodes/z-image-wildcards/wildcards_node.py",
