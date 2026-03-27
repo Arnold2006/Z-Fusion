@@ -61,3 +61,4 @@ MIT License - See [LICENSE](LICENSE) file
 - Seed variance via [SeedVarianceEnhancer](https://github.com/ChangeTheConstants/SeedVarianceEnhancer) (MIT)
 - Wildcards based on [comfyui_wildcards](https://github.com/lordgasmic/comfyui_wildcards)
 - Camera prompts reference by [CameraPromptsGenerator](https://github.com/demon4932/CameraPromptsGenerator) (MIT)
+- Captioning via [JoyCaption](https://github.com/1038lab/ComfyUI-JoyCaption) (GPL-3.0)
