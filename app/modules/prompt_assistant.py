@@ -281,7 +281,6 @@ DEFAULT_MODEL_DEFAULTS = [
     "Goekdeniz-Guelmez/Josiefied-Qwen3-4B-abliterated-v2",
     "huihui-ai/Huihui-Qwen3-VL-2B-Instruct-abliterated",
     "coder3101/Qwen3-VL-2B-Instruct-heretic",
-    "thesby/Qwen3-VL-8B-NSFW-Caption-V4.5",
 ]
 
 DEFAULT_PRESETS = {
