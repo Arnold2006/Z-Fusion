@@ -12,6 +12,7 @@ import importlib.util
 import json
 import logging
 from dataclasses import dataclass, field
+from datetime import date
 from pathlib import Path
 from types import ModuleType
 from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
@@ -411,19 +412,25 @@ class SharedServices:
     def get_outputs_dir(self) -> Path:
         """
         Get the current outputs directory, respecting settings overrides.
-        
+
+        Today's date is always appended as a subdirectory (format DD-MM-YY)
+        so that output files are automatically organized by day.
+
         Returns:
-            Path to the outputs directory
+            Path to the dated outputs directory
         """
+        today = date.today().strftime("%d-%m-%y")
         custom_path = self.settings.get("outputs_dir")
         if custom_path:
             path = Path(custom_path)
             if path.is_absolute():
-                path.mkdir(parents=True, exist_ok=True)
-                return path
+                dated_path = path / today
+                dated_path.mkdir(parents=True, exist_ok=True)
+                return dated_path
         # Use default
-        self.outputs_dir.mkdir(parents=True, exist_ok=True)
-        return self.outputs_dir
+        dated_path = self.outputs_dir / today
+        dated_path.mkdir(parents=True, exist_ok=True)
+        return dated_path
 
 
 @dataclass
